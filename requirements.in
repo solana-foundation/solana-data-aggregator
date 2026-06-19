@@ -1,0 +1,5 @@
+black==26.3.1
+pytest==9.0.3
+python-dotenv==1.2.2
+requests==2.33.1
+ruff==0.15.11

@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+
+# Env files
+.env
+
+# Test/cache artifacts
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Local databases and logs
+*.duckdb
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# macOS
+.DS_Store
+
+# Local provider output
+_output/*
+output/*
