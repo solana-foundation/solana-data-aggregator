@@ -74,3 +74,7 @@ python main.py --providers artemis,dune --start 2026-06-09 --end 2026-06-15
 Output files are written to `_output/<provider>.json`, with all metrics for that provider in a single file. Providers without a configured API key are skipped automatically.
 
 `--methodology` prints a JSON list of `{"provider", "metric", "description", "methodology_url"}` records for every metric with a methodology defined. Metrics without one are skipped.
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for the full text.
