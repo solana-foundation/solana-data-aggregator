@@ -30,6 +30,7 @@ from providers.rwa import Rwa
 from providers.stakewiz import Stakewiz
 from providers.token_terminal import TokenTerminal
 from providers.validators_app import ValidatorsApp
+from providers.zerion import Zerion
 
 OUTPUT_DIR = Path(__file__).parent / "_output"
 LOOKBACK_DAYS = 7
@@ -45,6 +46,7 @@ PROVIDER_REGISTRY: List[tuple[str, Type[BaseProvider], Optional[str]]] = [
     ("stakewiz", Stakewiz, None),
     ("token_terminal", TokenTerminal, "TOKEN_TERMINAL_API_KEY"),
     ("validators_app", ValidatorsApp, "VALIDATORS_APP_API_TOKEN"),
+    ("zerion", Zerion, "ZERION_API_KEY"),
 ]
 
 

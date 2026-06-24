@@ -18,10 +18,11 @@ Prefix the with `[Backfill]` indicating the following:
 - Python 3.12+
 - `pip` and `venv`
 - API keys for the providers you want to run (see `.env.example`)
+  - `ZERION_API_KEY` enables the Zerion provider (free key at [dashboard.zerion.io](https://dashboard.zerion.io))
 
 ## Project Layout
 - `metrics/`: typed metric models and metadata mapping
-- `providers/`: provider interfaces (Allium, Artemis, Blockworks, DefiLlama, Dune, RWA, Stakewiz, TokenTerminal, ValidatorsApp)
+- `providers/`: provider interfaces (Allium, Artemis, Blockworks, DefiLlama, Dune, RWA, Stakewiz, TokenTerminal, ValidatorsApp, Zerion)
 - `tests/unit/`: isolated provider and model behavior tests
 - `tests/integration/`: live API integration tests
 - `tests/conftest.py`: shared pytest fixtures and test setup
