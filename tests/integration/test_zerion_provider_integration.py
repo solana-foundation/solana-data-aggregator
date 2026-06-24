@@ -32,4 +32,5 @@ def test_get_sol_price_live_api() -> None:
     assert metric is not None
     assert isinstance(metric, Overview)
     assert metric.metric_type == OverviewMetricType.SOL_PRICE
-    assert metric.value > 0
+    # Plausibility bound (not just > 0) to catch unit/scaling regressions.
+    assert 10 < metric.value < 10_000

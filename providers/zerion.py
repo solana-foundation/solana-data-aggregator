@@ -28,19 +28,12 @@ class Zerion(BaseProvider):
         "overview_sol_price": {
             "implementation": "solana",
             "price_chart": True,
-            "methodology": "Daily SOL price in USD from Zerion's cross-source price feed.",
+            "methodology": "Daily SOL price in USD from Zerion's cross-source price feed; covers the trailing 365 days at daily granularity.",
             "methodology_url": "https://docs.zerion.io/api-reference/fungibles/get-a-chart-for-a-fungible-asset-by-implementation",
         },
-        # -- Upcoming: Zerion ecosystem-wide stablecoin metrics ----------------
-        # Zerion is releasing ecosystem-wide stablecoin data that maps directly
-        # onto the Stablecoin metric category already defined in this repo. To
-        # enable when the endpoints ship: add the endpoint config here, add a
-        # parsing branch in fetch_rows(), and uncomment the matching entries in
-        # get_metric()'s stablecoin_metric_map (plus the Stablecoin imports).
-        #
-        # "stablecoin_supply":           -> StablecoinMetricType.SUPPLY
-        # "stablecoin_transfer_volume":  -> StablecoinMetricType.TRANSFER_VOLUME
-        # "stablecoin_active_addresses": -> StablecoinMetricType.ACTIVE_ADDRESSES
+        # TODO: add Zerion ecosystem-wide stablecoin metrics (supply,
+        # transfer_volume, active_addresses) mapping onto the Stablecoin category
+        # once those endpoints ship — see the PR description.
     }
 
     BASE_URL = "https://api.zerion.io/v1"
@@ -77,20 +70,6 @@ class Zerion(BaseProvider):
             .isoformat()
         )
 
-    @staticmethod
-    def _chart_period(start_date: str) -> str:
-        """Pick the smallest day-spaced chart period that still covers start_date.
-
-        Zerion chart periods are fixed windows ending at "now": ``year`` spans
-        the last 365 days at 1-day spacing (ideal for a daily series). For older
-        backfills we fall back to ``max`` (best-effort; spacing widens beyond a
-        year), and downsample to one point per day in fetch_rows().
-        """
-        days_back = (
-            datetime.date.today() - datetime.date.fromisoformat(start_date)
-        ).days
-        return "year" if days_back < 365 else "max"
-
     # -- BaseProvider interface ---------------------------------------------
 
     def fetch_rows(
@@ -103,14 +82,20 @@ class Zerion(BaseProvider):
             raise ValueError(f"Unknown metric '{metric}'. Available: {available}")
 
         if config.get("price_chart"):
-            period = self._chart_period(start_date)
+            # Zerion fungible charts are fixed windows ending "now". `year` is the
+            # trailing 365 days at 1-day spacing — the only period that yields a
+            # true daily series. We deliberately do NOT fall back to `max` for
+            # older ranges: its spacing widens past daily and would silently
+            # return coarse points dressed up as daily values. So history is
+            # capped to the trailing 365 days (documented in the methodology);
+            # dates older than that are simply not returned rather than faked.
             raw = self._get(
-                f"/fungibles/by-implementation/charts/{period}",
+                "/fungibles/by-implementation/charts/year",
                 params={"implementation": config["implementation"], "currency": "usd"},
             )
             points = raw.get("data", {}).get("attributes", {}).get("points", []) or []
-            # Charts return finer-than-daily points for some periods; collapse to
-            # one value per day (last point of each UTC day wins).
+            # `year` is daily already; dedupe defensively so any duplicate UTC day
+            # collapses to its last value.
             daily: Dict[str, float] = {}
             for ts, value in points:
                 row_date = self._ts_to_date(int(ts))
@@ -142,20 +127,7 @@ class Zerion(BaseProvider):
                 value=value,
             )
 
-        # Upcoming stablecoin metrics — enable alongside the METRIC_MAP entries
-        # above (and add: from metrics.stablecoin import Stablecoin,
-        # StablecoinMetricType):
-        #
-        # stablecoin_metric_map = {
-        #     "stablecoin_supply": StablecoinMetricType.SUPPLY,
-        #     "stablecoin_transfer_volume": StablecoinMetricType.TRANSFER_VOLUME,
-        #     "stablecoin_active_addresses": StablecoinMetricType.ACTIVE_ADDRESSES,
-        # }
-        # if metric in stablecoin_metric_map:
-        #     return Stablecoin.from_metric_type(
-        #         metric_type=stablecoin_metric_map[metric],
-        #         date=parsed_date,
-        #         value=value,
-        #     )
+        # TODO: map upcoming stablecoin metrics to Stablecoin.from_metric_type
+        # here when the endpoints ship (see METRIC_MAP and the PR description).
 
         return None
