@@ -210,7 +210,7 @@ class Allium(BaseProvider):
             "sql": """
                 SELECT
                     activity_date AS date,
-                    dex_volume_usd AS daily_volume_usd
+                    dex_volume_usd_adjusted AS daily_volume_usd
                 FROM solana.metrics.overview
                 WHERE activity_date >= '{start_date}'
                   AND activity_date < DATEADD('day', 1, '{end_date}')
