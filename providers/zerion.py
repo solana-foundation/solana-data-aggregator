@@ -13,19 +13,7 @@ from providers.base import BaseProvider
 
 
 class Zerion(BaseProvider):
-    """Fetch metrics from the Zerion API.
-
-    The Zerion API is a protocol-decoded portfolio and token-data API covering
-    36+ chains including Solana (base ``https://api.zerion.io/v1``, HTTP Basic
-    auth). This provider currently contributes the daily SOL price to the
-    ``Overview`` category, sourced from Zerion's cross-source price feed.
-
-    Zerion is shipping ecosystem-wide stablecoin data that maps onto this repo's
-    ``Stablecoin`` category (supply, transfer volume, active addresses). Those
-    metrics are intentionally left unwired below until the endpoints are live so
-    the provider stays green in CI — see the notes in ``METRIC_MAP`` and
-    ``get_metric``.
-    """
+    """Fetch SOL price (and, soon, ecosystem stablecoin) metrics from the Zerion API."""
 
     METRIC_MAP: Dict[str, Dict[str, Any]] = {
         "overview_sol_price": {
