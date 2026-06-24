@@ -39,7 +39,9 @@ class Zerion(BaseProvider):
     BASE_URL = "https://api.zerion.io/v1"
 
     def __init__(self, *, api_key: Optional[str] = None) -> None:
-        resolved_api_key = api_key or os.environ.get("ZERION_API_KEY") or ""
+        resolved_api_key = api_key or self._resolve_api_key()
+        if not resolved_api_key:
+            raise ValueError("API key is required")
         super().__init__(
             name="Zerion",
             base_url=self.BASE_URL,
@@ -48,6 +50,10 @@ class Zerion(BaseProvider):
         self._session = requests.Session()
 
     # -- private helpers ----------------------------------------------------
+
+    @staticmethod
+    def _resolve_api_key() -> Optional[str]:
+        return os.environ.get("ZERION_API_KEY")
 
     def _get(self, path: str, *, params: Optional[Dict[str, Any]] = None) -> Any:
         # Zerion uses HTTP Basic auth: the API key as the username with an empty
@@ -97,7 +103,10 @@ class Zerion(BaseProvider):
             # `year` is daily already; dedupe defensively so any duplicate UTC day
             # collapses to its last value.
             daily: Dict[str, float] = {}
-            for ts, value in points:
+            for point in points:
+                if not isinstance(point, (list, tuple)) or len(point) < 2:
+                    continue
+                ts, value = point[0], point[1]
                 row_date = self._ts_to_date(int(ts))
                 if start_date <= row_date <= end_date:
                     daily[row_date] = float(value)
@@ -130,4 +139,6 @@ class Zerion(BaseProvider):
         # TODO: map upcoming stablecoin metrics to Stablecoin.from_metric_type
         # here when the endpoints ship (see METRIC_MAP and the PR description).
 
-        return None
+        # Defensive: fetch_rows() already validates the metric is in METRIC_MAP,
+        # so reaching here means a known metric has no typed-model mapping yet.
+        raise ValueError(f"Metric '{metric}' has no typed-model mapping in get_metric.")

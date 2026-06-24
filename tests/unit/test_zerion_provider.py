@@ -27,7 +27,7 @@ def _make_mock_resp(payload):
 
 
 def test_get_sol_price_returns_overview_metric() -> None:
-    provider = Zerion()
+    provider = Zerion(api_key="test-key")
     sentinel_metric = object()
 
     with (
@@ -45,7 +45,7 @@ def test_get_sol_price_returns_overview_metric() -> None:
 
 
 def test_fetch_rows_filters_by_date_range() -> None:
-    provider = Zerion()
+    provider = Zerion(api_key="test-key")
     raw = {
         "data": {
             "attributes": {
@@ -67,7 +67,7 @@ def test_fetch_rows_filters_by_date_range() -> None:
 
 
 def test_fetch_rows_collapses_intraday_points_to_one_per_day() -> None:
-    provider = Zerion()
+    provider = Zerion(api_key="test-key")
     raw = {
         "data": {
             "attributes": {
@@ -86,9 +86,18 @@ def test_fetch_rows_collapses_intraday_points_to_one_per_day() -> None:
 
 
 def test_fetch_rows_raises_on_unknown_metric() -> None:
-    provider = Zerion()
+    provider = Zerion(api_key="test-key")
     try:
         provider.fetch_rows("nonexistent_metric", "2026-01-01", "2026-01-31")
         assert False, "Expected ValueError"
     except ValueError as exc:
         assert "nonexistent_metric" in str(exc)
+
+
+def test_init_requires_api_key(monkeypatch) -> None:
+    monkeypatch.delenv("ZERION_API_KEY", raising=False)
+    try:
+        Zerion()
+        assert False, "Expected ValueError"
+    except ValueError as exc:
+        assert "API key" in str(exc)
