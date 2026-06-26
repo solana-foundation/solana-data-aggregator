@@ -5,6 +5,8 @@ from __future__ import annotations
 import datetime
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from metrics.defi import Defi, DefiMetricType
 from metrics.overview import Overview, OverviewMetricType
 from providers.dexpaprika import DexPaprika
@@ -100,11 +102,17 @@ def test_dex_count_raises_if_page_is_full() -> None:
     with patch.object(
         provider._session, "get", return_value=_make_mock_resp(full_page)
     ):
-        try:
+        with pytest.raises(RuntimeError, match="page limit"):
             provider.fetch_rows("defi_dex_count", _TODAY, _TODAY)
-            assert False, "Expected RuntimeError on a full page"
-        except RuntimeError as exc:
-            assert "page limit" in str(exc)
+
+
+def test_dex_count_empty_when_dexes_key_absent() -> None:
+    # A 200 whose body lacks "dexes" (schema drift) must skip the row, not
+    # record a misleading 0. Mirrors the missing-field handling for other metrics.
+    provider = DexPaprika()
+    no_dexes = {"page_info": {"limit": 100, "page": 1}}  # no "dexes" key
+    with patch.object(provider._session, "get", return_value=_make_mock_resp(no_dexes)):
+        assert provider.fetch_rows("defi_dex_count", _TODAY, _TODAY) == []
 
 
 def test_fetch_rows_empty_when_chain_absent() -> None:
@@ -156,11 +164,8 @@ def test_fetch_rows_returns_empty_when_today_out_of_range() -> None:
 
 def test_fetch_rows_raises_on_unknown_metric() -> None:
     provider = DexPaprika()
-    try:
+    with pytest.raises(ValueError, match="nonexistent_metric"):
         provider.fetch_rows("nonexistent_metric", _TODAY, _TODAY)
-        assert False, "Expected ValueError"
-    except ValueError as exc:
-        assert "nonexistent_metric" in str(exc)
 
 
 def test_get_metric_returns_none_when_no_rows() -> None:

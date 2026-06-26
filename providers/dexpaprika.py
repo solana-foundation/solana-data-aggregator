@@ -138,7 +138,7 @@ class DexPaprika(BaseProvider):
             return None
         return self._to_float(summary.get(field))
 
-    def _active_dex_count(self, endpoint: str) -> int:
+    def _active_dex_count(self, endpoint: str) -> Optional[int]:
         """Count DEXes on the chain with non-zero 24h volume.
 
         ``/networks/<chain>/dexes`` lists DEX *protocols* (Solana has ~9:
@@ -148,9 +148,15 @@ class DexPaprika(BaseProvider):
         page and the count can no longer be trusted, so we raise rather than
         under-report. (The endpoint's ``page`` param is a server-side no-op
         today, so true pagination isn't available to walk.)
+
+        Returns ``None`` when the response has no ``dexes`` list (malformed or
+        schema-changed), so the caller skips the row instead of recording a
+        misleading ``0``. Mirrors ``_network_field`` / ``_token_summary_field``.
         """
         payload = self._get(endpoint, params={"limit": self._DEX_PAGE_LIMIT})
-        dexes = payload.get("dexes", []) if isinstance(payload, dict) else []
+        dexes = payload.get("dexes") if isinstance(payload, dict) else None
+        if not isinstance(dexes, list):
+            return None
         if len(dexes) >= self._DEX_PAGE_LIMIT:
             raise RuntimeError(
                 f"DEX list hit the page limit ({self._DEX_PAGE_LIMIT}); "
@@ -183,7 +189,8 @@ class DexPaprika(BaseProvider):
             return []
 
         if config.get("count_active_dexes"):
-            value: Optional[float] = float(self._active_dex_count(config["endpoint"]))
+            count = self._active_dex_count(config["endpoint"])
+            value: Optional[float] = None if count is None else float(count)
         elif "summary_field" in config:
             value = self._token_summary_field(
                 config["endpoint"], config["summary_field"]
