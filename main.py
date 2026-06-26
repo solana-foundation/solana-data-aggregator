@@ -1,13 +1,16 @@
 """CLI entrypoint: run providers and dump fetched metrics to disk.
 
 Loads credentials from .env and runs fetch_rows for each metric a provider
-supports over a date range, writing one JSON file per provider+metric to
-_output/<provider>_<metric>.json.
+supports over a date range, writing one JSON file per provider to
+_output/<provider>.json with all metrics as keys. Providers missing a
+required env var are skipped automatically.
 
 Usage:
     python main.py
     python main.py --providers artemis,dune --start 2026-06-09 --end 2026-06-15
+    python main.py --methodology
 """
+
 
 from __future__ import annotations
 
