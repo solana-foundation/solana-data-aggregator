@@ -206,11 +206,11 @@ class Allium(BaseProvider):
         "defi_dex_volume": {
             "date_field": "date",
             "value_field": "daily_volume_usd",
-            "methodology": "USD notional value of all Solana spot DEX trades.",
+            "methodology": "Filters for washtrading activity.",
             "sql": """
                 SELECT
                     activity_date AS date,
-                    dex_volume_usd AS daily_volume_usd
+                    dex_volume_usd_adjusted AS daily_volume_usd
                 FROM solana.metrics.overview
                 WHERE activity_date >= '{start_date}'
                   AND activity_date < DATEADD('day', 1, '{end_date}')
