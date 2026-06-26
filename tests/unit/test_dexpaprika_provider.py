@@ -172,3 +172,15 @@ def test_get_metric_returns_none_when_no_rows() -> None:
     provider = DexPaprika()
     # Past range -> fetch_rows returns [] -> get_metric returns None.
     assert provider.get_metric("defi_dex_volume", "2024-01-01", "solana") is None
+
+
+def test_get_metric_returns_none_for_mapped_but_untyped_metric() -> None:
+    # Defensive path: a metric present in METRIC_MAP but absent from both type
+    # maps degrades to None instead of raising, even when fetch_rows returns data.
+    provider = DexPaprika()
+    fake = {"endpoint": "/networks", "network_field": "volume_usd_24h"}
+    with patch.dict(DexPaprika.METRIC_MAP, {"unmapped_metric": fake}, clear=False):
+        with patch.object(
+            provider._session, "get", return_value=_make_mock_resp(_NETWORKS_RAW)
+        ):
+            assert provider.get_metric("unmapped_metric", _TODAY, "solana") is None
