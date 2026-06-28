@@ -86,6 +86,10 @@ Output files are written to `_output/<provider>.json`, with all metrics for that
 
 `--methodology` prints a JSON list of `{"provider", "metric", "description", "methodology_url"}` records for every metric with a methodology defined. Metrics without one are skipped.
 
+## Contributing a Provider
+
+A new provider must support at least four of the existing metrics across a minimum of two metric pages (e.g. DEX and network). See `metrics/` for the current metric definitions.
+
 ## License
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for the full text.
