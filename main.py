@@ -28,6 +28,7 @@ from providers.artemis import Artemis
 from providers.base import BaseProvider
 from providers.blockworks import Blockworks
 from providers.defillama import DefiLlama
+from providers.dexpaprika import DexPaprika
 from providers.dune import Dune
 from providers.rwa import Rwa
 from providers.stakewiz import Stakewiz
@@ -43,6 +44,7 @@ PROVIDER_REGISTRY: List[tuple[str, Type[BaseProvider], Optional[str]]] = [
     ("artemis", Artemis, "ARTEMIS_API_KEY"),
     ("blockworks", Blockworks, "BLOCKWORKS_API_KEY"),
     ("defillama", DefiLlama, "DEFILLAMA_API_KEY"),
+    ("dexpaprika", DexPaprika, None),
     ("dune", Dune, "DUNE_API_KEY"),
     ("rwa", Rwa, "RWA_API_KEY"),
     ("stakewiz", Stakewiz, None),
