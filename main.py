@@ -31,6 +31,7 @@ from providers.defillama import DefiLlama
 from providers.dexpaprika import DexPaprika
 from providers.dune import Dune
 from providers.rwa import Rwa
+from providers.solana_compass import SolanaCompass
 from providers.stakewiz import Stakewiz
 from providers.token_terminal import TokenTerminal
 from providers.validators_app import ValidatorsApp
@@ -47,6 +48,7 @@ PROVIDER_REGISTRY: List[tuple[str, Type[BaseProvider], Optional[str]]] = [
     ("dexpaprika", DexPaprika, None),
     ("dune", Dune, "DUNE_API_KEY"),
     ("rwa", Rwa, "RWA_API_KEY"),
+    ("solana_compass", SolanaCompass, None),
     ("stakewiz", Stakewiz, None),
     ("token_terminal", TokenTerminal, "TOKEN_TERMINAL_API_KEY"),
     ("validators_app", ValidatorsApp, "VALIDATORS_APP_API_TOKEN"),
