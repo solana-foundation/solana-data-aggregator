@@ -125,6 +125,27 @@ class TopLedger(BaseProvider):
             ),
             "methodology_url": "https://analytics.topledger.xyz/tl/queries/15090",
         },
+        "stablecoin_transfer_volume": {
+            "query_id": 15091,
+            "date_field": "block_date",
+            "value_field": "transfer_volume",
+            "methodology": (
+                "Daily USD transfer volume of stablecoins on Solana across SPL Token "
+                "and SPL Token-2022 programs, priced using 1-minute average prices. "
+                "Covers all Transfer and TransferChecked instructions for mapped stablecoin mints."
+            ),
+            "methodology_url": "https://analytics.topledger.xyz/tl/queries/15091",
+        },
+        "stablecoin_transfer_count": {
+            "query_id": 15091,
+            "date_field": "block_date",
+            "value_field": "transfer_count",
+            "methodology": (
+                "Daily count of stablecoin transfer instructions on Solana across "
+                "SPL Token and SPL Token-2022 programs for mapped stablecoin mints."
+            ),
+            "methodology_url": "https://analytics.topledger.xyz/tl/queries/15091",
+        },
     }
 
     _OVERVIEW_METRIC_TYPE_MAP: Dict[str, OverviewMetricType] = {
@@ -140,6 +161,8 @@ class TopLedger(BaseProvider):
     _STABLECOIN_METRIC_TYPE_MAP: Dict[str, StablecoinMetricType] = {
         "stablecoin_supply": StablecoinMetricType.SUPPLY,
         "stablecoin_count": StablecoinMetricType.COUNT,
+        "stablecoin_transfer_volume": StablecoinMetricType.TRANSFER_VOLUME,
+        "stablecoin_transfer_count": StablecoinMetricType.TRANSFER_COUNT,
     }
 
     _POLL_INTERVAL = 2  # seconds between job status polls

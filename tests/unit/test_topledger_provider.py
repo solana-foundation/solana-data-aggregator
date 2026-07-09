@@ -385,6 +385,79 @@ def test_get_metric_stablecoin_count_returns_stablecoin_model() -> None:
     assert result.value == 8.0
 
 
+_TRANSFER_ROWS = [
+    {
+        "block_date": "2026-07-01",
+        "transfer_count": 4_200_000,
+        "transfer_volume": 3_800_000_000.0,
+    },
+    {
+        "block_date": "2026-07-02",
+        "transfer_count": 4_350_000,
+        "transfer_volume": 3_950_000_000.0,
+    },
+]
+
+
+def test_fetch_rows_stablecoin_transfer_volume() -> None:
+    provider = _make_provider()
+    with patch.object(
+        provider._session, "post", return_value=_immediate_result_resp(_TRANSFER_ROWS)
+    ):
+        rows = provider.fetch_rows("stablecoin_transfer_volume", _START, "2026-07-02")
+
+    assert len(rows) == 2
+    assert rows[0] == {"date": "2026-07-01", "value": pytest.approx(3_800_000_000.0)}
+    assert rows[1] == {"date": "2026-07-02", "value": pytest.approx(3_950_000_000.0)}
+
+
+def test_fetch_rows_stablecoin_transfer_count() -> None:
+    provider = _make_provider()
+    with patch.object(
+        provider._session, "post", return_value=_immediate_result_resp(_TRANSFER_ROWS)
+    ):
+        rows = provider.fetch_rows("stablecoin_transfer_count", _START, "2026-07-02")
+
+    assert rows[0] == {"date": "2026-07-01", "value": 4_200_000.0}
+    assert rows[1] == {"date": "2026-07-02", "value": 4_350_000.0}
+
+
+def test_transfer_metrics_share_one_query_call() -> None:
+    """stablecoin_transfer_volume and stablecoin_transfer_count share query 15091."""
+    provider = _make_provider()
+    mock_post = MagicMock(return_value=_immediate_result_resp(_TRANSFER_ROWS))
+
+    with patch.object(provider._session, "post", mock_post):
+        provider.fetch_rows("stablecoin_transfer_volume", _START, "2026-07-02")
+        provider.fetch_rows("stablecoin_transfer_count", _START, "2026-07-02")
+
+    assert mock_post.call_count == 1
+
+
+def test_get_metric_stablecoin_transfer_volume() -> None:
+    provider = _make_provider()
+    with patch.object(
+        provider._session, "post", return_value=_immediate_result_resp(_TRANSFER_ROWS)
+    ):
+        result = provider.get_metric("stablecoin_transfer_volume", _START, "solana")
+
+    assert isinstance(result, Stablecoin)
+    assert result.metric_type == StablecoinMetricType.TRANSFER_VOLUME
+    assert result.value == pytest.approx(3_800_000_000.0)
+
+
+def test_get_metric_stablecoin_transfer_count() -> None:
+    provider = _make_provider()
+    with patch.object(
+        provider._session, "post", return_value=_immediate_result_resp(_TRANSFER_ROWS)
+    ):
+        result = provider.get_metric("stablecoin_transfer_count", _START, "solana")
+
+    assert isinstance(result, Stablecoin)
+    assert result.metric_type == StablecoinMetricType.TRANSFER_COUNT
+    assert result.value == 4_200_000.0
+
+
 # -- constructor ---------------------------------------------------------------
 
 
