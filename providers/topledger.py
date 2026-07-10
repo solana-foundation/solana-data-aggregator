@@ -33,181 +33,106 @@ class TopLedger(BaseProvider):
 
     Caching
     -------
-    Multiple metrics share query 15088. Raw rows are cached in-process
-    by (query_id, start_date, end_date) so the query runs at most once
-    per date range regardless of how many metrics are requested.
+    Multiple metrics can share the same Redash query. Raw rows are cached
+    in-process by (query_id, start_date, end_date) so each query runs at
+    most once per date range regardless of how many metrics are requested.
     """
 
     BASE_URL = "https://analytics.topledger.xyz/tl"
 
-    # All six overview metrics come from a single parameterised Redash query.
-    # The query returns one row per block_date with all columns present.
     METRIC_MAP: Dict[str, Dict[str, Any]] = {
-        "overview_tx_count_total": {
-            "query_id": 15088,
-            "date_field": "block_date",
-            "value_field": "transactions",
-            "methodology": (
-                "Total daily transaction count on Solana, deduplicated per "
-                "block slot to avoid double-counting re-processed slots."
-            ),
-            "methodology_url": "https://analytics.topledger.xyz/tl/queries/15088",
-        },
-        "overview_tx_count_vote": {
-            "query_id": 15088,
-            "date_field": "block_date",
-            "value_field": "vote_transactions",
-            "methodology": (
-                "Daily vote transaction count on Solana, deduplicated per block slot."
-            ),
-            "methodology_url": "https://analytics.topledger.xyz/tl/queries/15088",
-        },
         "overview_non_vote_tx_count_success": {
             "query_id": 15088,
             "date_field": "block_date",
             "value_field": "successful_non_vote_transactions",
-            "methodology": (
-                "Daily count of successful non-vote transactions on Solana."
-            ),
-            "methodology_url": "https://analytics.topledger.xyz/tl/queries/15088",
+            "methodology": "Successful non-vote transactions",
         },
         "overview_non_vote_tx_count_failed": {
             "query_id": 15088,
             "date_field": "block_date",
             "value_field": "failed_non_vote_transactions",
-            "methodology": ("Daily count of failed non-vote transactions on Solana."),
-            "methodology_url": "https://analytics.topledger.xyz/tl/queries/15088",
-        },
-        "overview_fees": {
-            "query_id": 15088,
-            "date_field": "block_date",
-            "value_field": "txns_fees",
-            "methodology": (
-                "Daily transaction fees on Solana in SOL "
-                "(base fees + priority fees), summed across all slots."
-            ),
-            "methodology_url": "https://analytics.topledger.xyz/tl/queries/15088",
+            "methodology": "Failed non-vote transactions",
         },
         "overview_slots": {
             "query_id": 15088,
             "date_field": "block_date",
             "value_field": "slots",
-            "methodology": "Number of confirmed block slots per day on Solana.",
-            "methodology_url": "https://analytics.topledger.xyz/tl/queries/15088",
+            "methodology": "Confirmed block slots",
         },
         "overview_sol_price": {
             "query_id": 15089,
             "date_field": "block_date",
             "value_field": "sol_price_usd",
-            "methodology": (
-                "Daily average SOL price in USD, computed as the mean of "
-                "1-minute OHLC prices for the wrapped SOL mint "
-                "(So11111111111111111111111111111111111111112)."
-            ),
-            "methodology_url": "https://analytics.topledger.xyz/tl/queries/15089",
+            "methodology": "Average SOL price in USD",
+        },
+        "overview_fee_payers": {
+            "query_id": 15096,
+            "date_field": "block_date",
+            "value_field": "fee_payer",
+            "methodology": "Unique signers of non-vote transactions",
         },
         "stablecoin_supply": {
             "query_id": 15090,
             "date_field": "block_date",
             "value_field": "marketcap",
-            "methodology": (
-                "Total circulating supply of stablecoins on Solana in USD, "
-                "computed as token supply multiplied by the daily average price "
-                "for each mint, summed across all tracked stablecoin contracts."
-            ),
-            "methodology_url": "https://analytics.topledger.xyz/tl/queries/15090",
+            "methodology": "Total circulating supply of stablecoins in USD",
         },
         "stablecoin_count": {
             "query_id": 15090,
             "date_field": "block_date",
             "value_field": "stablecoin_count",
-            "methodology": (
-                "Number of distinct stablecoin contracts tracked on Solana per day."
-            ),
-            "methodology_url": "https://analytics.topledger.xyz/tl/queries/15090",
+            "methodology": "Distinct stablecoin contracts tracked",
         },
         "stablecoin_transfer_volume": {
             "query_id": 15091,
             "date_field": "block_date",
             "value_field": "transfer_volume",
-            "methodology": (
-                "Daily USD transfer volume of stablecoins on Solana across SPL Token "
-                "and SPL Token-2022 programs, priced using 1-minute average prices. "
-                "Covers all Transfer and TransferChecked instructions for mapped stablecoin mints."
-            ),
-            "methodology_url": "https://analytics.topledger.xyz/tl/queries/15091",
+            "methodology": "USD value of stablecoin transfers",
         },
         "stablecoin_transfer_count": {
             "query_id": 15091,
             "date_field": "block_date",
             "value_field": "transfer_count",
-            "methodology": (
-                "Daily count of stablecoin transfer instructions on Solana across "
-                "SPL Token and SPL Token-2022 programs for mapped stablecoin mints."
-            ),
-            "methodology_url": "https://analytics.topledger.xyz/tl/queries/15091",
+            "methodology": "Stablecoin transfer instructions",
         },
         "stablecoin_active_addresses": {
             "query_id": 15092,
             "date_field": "block_date",
             "value_field": "active_address",
-            "methodology": (
-                "Daily count of unique signers of stablecoin Transfer and TransferChecked "
-                "instructions on Solana, across both SPL Token and SPL Token-2022 programs."
-            ),
-            "methodology_url": "https://analytics.topledger.xyz/tl/queries/15092",
+            "methodology": "Unique signers of transactions containing a stablecoin transfer",
         },
         "defi_dex_volume": {
             "query_id": 15093,
             "date_field": "block_date",
             "value_field": "dex_volume",
-            "methodology": (
-                "Daily USD DEX trading volume on Solana. Volume is priced using 1-minute "
-                "token prices with a priority order: SOL-side first, then stablecoin-side, "
-                "then minimum of both sides. Excludes non-standard Orca Whirlpool configs, "
-                "VDOR-named tokens, and wash-trade-prone pools."
-            ),
-            "methodology_url": "https://analytics.topledger.xyz/tl/queries/15093",
+            "methodology": "USD value of spot DEX trades excluding Pump wash trading and filtered pools",
         },
         "defi_dex_transactions": {
-            "query_id": 15093,
+            "query_id": 15103,
             "date_field": "block_date",
             "value_field": "dex_transactions",
-            "methodology": (
-                "Daily count of unique DEX swap transactions on Solana, "
-                "deduplicated by (block_slot, tx_index)."
-            ),
-            "methodology_url": "https://analytics.topledger.xyz/tl/queries/15093",
+            "methodology": "Distinct DEX swap transactions, with multi-hop swaps counted once per transaction",
         },
         "defi_dex_traders": {
-            "query_id": 15093,
+            "query_id": 15103,
             "date_field": "block_date",
             "value_field": "traders",
-            "methodology": (
-                "Daily count of unique wallet signers initiating DEX swaps on Solana."
-            ),
-            "methodology_url": "https://analytics.topledger.xyz/tl/queries/15093",
+            "methodology": "Unique wallet signers initiating DEX swap transactions",
         },
         "defi_dex_count": {
-            "query_id": 15093,
+            "query_id": 15103,
             "date_field": "block_date",
             "value_field": "dex_counts",
-            "methodology": (
-                "Daily count of distinct DEX programs (inner_program) with trading "
-                "activity on Solana, after excluding filtered pools and mints."
-            ),
-            "methodology_url": "https://analytics.topledger.xyz/tl/queries/15093",
+            "methodology": "Distinct DEX programs with trading activity",
         },
     }
 
     _OVERVIEW_METRIC_TYPE_MAP: Dict[str, OverviewMetricType] = {
-        "overview_tx_count_total": OverviewMetricType.TX_COUNT_TOTAL,
-        "overview_tx_count_vote": OverviewMetricType.TX_COUNT_VOTE,
         "overview_non_vote_tx_count_success": OverviewMetricType.TX_COUNT_NON_VOTE_SUCCESS,
         "overview_non_vote_tx_count_failed": OverviewMetricType.TX_COUNT_NON_VOTE_FAILED,
-        "overview_fees": OverviewMetricType.FEES,
         "overview_slots": OverviewMetricType.SLOTS,
         "overview_sol_price": OverviewMetricType.SOL_PRICE,
+        "overview_fee_payers": OverviewMetricType.FEE_PAYERS,
     }
 
     _STABLECOIN_METRIC_TYPE_MAP: Dict[str, StablecoinMetricType] = {
@@ -233,7 +158,7 @@ class TopLedger(BaseProvider):
         if not resolved:
             raise ValueError("TOPLEDGER_API_KEY is required")
         super().__init__(
-            name="TopLedger",
+            name="Top Ledger",
             base_url=self.BASE_URL,
             api_key=resolved,
         )
