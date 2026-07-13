@@ -186,8 +186,8 @@ class TopLedger(BaseProvider):
         resp = self._session.post(
             f"{self.base_url}/api/queries/{query_id}/results",
             params=self._auth(),
-            json={"parameters": {"start_date": start_date, "end_date": end_date}},
-            timeout=60,
+            json={"parameters": {"start_date": start_date, "end_date": end_date}, "max_age": 0},
+            timeout=120,
         )
         resp.raise_for_status()
         payload = resp.json()
