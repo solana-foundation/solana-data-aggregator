@@ -19,29 +19,20 @@ _END = "2026-07-03"
 _RAW_ROWS = [
     {
         "block_date": "2026-07-01",
-        "transactions": 120_000_000,
-        "txns_fees": 75_000.5,
         "successful_non_vote_transactions": 30_000_000,
         "failed_non_vote_transactions": 5_000_000,
-        "vote_transactions": 85_000_000,
         "slots": 432_000,
     },
     {
         "block_date": "2026-07-02",
-        "transactions": 118_000_000,
-        "txns_fees": 74_200.0,
         "successful_non_vote_transactions": 29_500_000,
         "failed_non_vote_transactions": 4_800_000,
-        "vote_transactions": 83_700_000,
         "slots": 431_800,
     },
     {
         "block_date": "2026-07-03",
-        "transactions": 121_000_000,
-        "txns_fees": 76_100.0,
         "successful_non_vote_transactions": 31_000_000,
         "failed_non_vote_transactions": 5_100_000,
-        "vote_transactions": 84_900_000,
         "slots": 432_100,
     },
 ]
@@ -89,29 +80,6 @@ def _job_failure_resp(job_id: str) -> MagicMock:
 # -- fetch_rows ----------------------------------------------------------------
 
 
-def test_fetch_rows_tx_count_total_immediate_result() -> None:
-    provider = _make_provider()
-    with patch.object(
-        provider._session, "post", return_value=_immediate_result_resp(_RAW_ROWS)
-    ):
-        rows = provider.fetch_rows("overview_tx_count_total", _START, _END)
-
-    assert len(rows) == 3
-    assert rows[0] == {"date": "2026-07-01", "value": 120_000_000.0}
-    assert rows[1] == {"date": "2026-07-02", "value": 118_000_000.0}
-    assert rows[2] == {"date": "2026-07-03", "value": 121_000_000.0}
-
-
-def test_fetch_rows_vote_transactions() -> None:
-    provider = _make_provider()
-    with patch.object(
-        provider._session, "post", return_value=_immediate_result_resp(_RAW_ROWS)
-    ):
-        rows = provider.fetch_rows("overview_tx_count_vote", _START, _END)
-
-    assert rows[0]["value"] == 85_000_000.0
-
-
 def test_fetch_rows_success_non_vote() -> None:
     provider = _make_provider()
     with patch.object(
@@ -130,16 +98,6 @@ def test_fetch_rows_failed_non_vote() -> None:
         rows = provider.fetch_rows("overview_non_vote_tx_count_failed", _START, _END)
 
     assert rows[0]["value"] == 5_000_000.0
-
-
-def test_fetch_rows_fees() -> None:
-    provider = _make_provider()
-    with patch.object(
-        provider._session, "post", return_value=_immediate_result_resp(_RAW_ROWS)
-    ):
-        rows = provider.fetch_rows("overview_fees", _START, _END)
-
-    assert rows[0]["value"] == pytest.approx(75_000.5)
 
 
 def test_fetch_rows_slots() -> None:
@@ -168,6 +126,35 @@ def test_fetch_rows_sol_price() -> None:
     assert rows[1] == {"date": "2026-07-02", "value": pytest.approx(187.10)}
 
 
+def test_fetch_rows_fee_payers() -> None:
+    fee_payer_rows = [
+        {"block_date": "2026-07-01", "fee_payer": 1_250_000},
+        {"block_date": "2026-07-02", "fee_payer": 1_280_000},
+    ]
+    provider = _make_provider()
+    with patch.object(
+        provider._session, "post", return_value=_immediate_result_resp(fee_payer_rows)
+    ):
+        rows = provider.fetch_rows("overview_fee_payers", _START, "2026-07-02")
+
+    assert len(rows) == 2
+    assert rows[0] == {"date": "2026-07-01", "value": 1_250_000.0}
+    assert rows[1] == {"date": "2026-07-02", "value": 1_280_000.0}
+
+
+def test_get_metric_fee_payers_returns_overview_model() -> None:
+    fee_payer_rows = [{"block_date": _START, "fee_payer": 1_250_000}]
+    provider = _make_provider()
+    with patch.object(
+        provider._session, "post", return_value=_immediate_result_resp(fee_payer_rows)
+    ):
+        result = provider.get_metric("overview_fee_payers", _START, "solana")
+
+    assert isinstance(result, Overview)
+    assert result.metric_type == OverviewMetricType.FEE_PAYERS
+    assert result.value == 1_250_000.0
+
+
 # -- caching -------------------------------------------------------------------
 
 
@@ -177,9 +164,9 @@ def test_same_query_runs_once_for_multiple_metrics() -> None:
     mock_post = MagicMock(return_value=_immediate_result_resp(_RAW_ROWS))
 
     with patch.object(provider._session, "post", mock_post):
-        provider.fetch_rows("overview_tx_count_total", _START, _END)
-        provider.fetch_rows("overview_tx_count_vote", _START, _END)
-        provider.fetch_rows("overview_fees", _START, _END)
+        provider.fetch_rows("overview_non_vote_tx_count_success", _START, _END)
+        provider.fetch_rows("overview_non_vote_tx_count_failed", _START, _END)
+        provider.fetch_rows("overview_slots", _START, _END)
 
     assert mock_post.call_count == 1
 
@@ -196,7 +183,7 @@ def test_different_query_ids_run_separate_requests() -> None:
     )
 
     with patch.object(provider._session, "post", mock_post):
-        provider.fetch_rows("overview_tx_count_total", _START, _END)
+        provider.fetch_rows("overview_slots", _START, _END)
         provider.fetch_rows("overview_sol_price", _START, _END)
 
     assert mock_post.call_count == 2
@@ -207,8 +194,8 @@ def test_different_date_ranges_run_separate_queries() -> None:
     mock_post = MagicMock(return_value=_immediate_result_resp(_RAW_ROWS[:1]))
 
     with patch.object(provider._session, "post", mock_post):
-        provider.fetch_rows("overview_tx_count_total", "2026-07-01", "2026-07-01")
-        provider.fetch_rows("overview_tx_count_total", "2026-07-02", "2026-07-02")
+        provider.fetch_rows("overview_slots", "2026-07-01", "2026-07-01")
+        provider.fetch_rows("overview_slots", "2026-07-02", "2026-07-02")
 
     assert mock_post.call_count == 2
 
@@ -231,9 +218,9 @@ def test_fetch_rows_polls_until_job_succeeds() -> None:
         patch.object(provider._session, "post", return_value=post_resp),
         patch.object(provider._session, "get", side_effect=[get_pending, get_success]),
     ):
-        rows = provider.fetch_rows("overview_tx_count_total", _START, _START)
+        rows = provider.fetch_rows("overview_slots", _START, _START)
 
-    assert rows == [{"date": "2026-07-01", "value": 120_000_000.0}]
+    assert rows == [{"date": "2026-07-01", "value": 432_000.0}]
 
 
 def test_fetch_rows_raises_on_job_failure() -> None:
@@ -251,7 +238,7 @@ def test_fetch_rows_raises_on_job_failure() -> None:
         ),
         pytest.raises(RuntimeError, match="status 4"),
     ):
-        provider.fetch_rows("overview_tx_count_total", _START, _END)
+        provider.fetch_rows("overview_slots", _START, _END)
 
 
 # -- get_metric ----------------------------------------------------------------
@@ -262,11 +249,13 @@ def test_get_metric_returns_overview_model() -> None:
     with patch.object(
         provider._session, "post", return_value=_immediate_result_resp(_RAW_ROWS)
     ):
-        result = provider.get_metric("overview_tx_count_total", _START, "solana")
+        result = provider.get_metric(
+            "overview_non_vote_tx_count_success", _START, "solana"
+        )
 
     assert isinstance(result, Overview)
-    assert result.metric_type == OverviewMetricType.TX_COUNT_TOTAL
-    assert result.value == 120_000_000.0
+    assert result.metric_type == OverviewMetricType.TX_COUNT_NON_VOTE_SUCCESS
+    assert result.value == 30_000_000.0
     assert result.date == datetime.date.fromisoformat(_START)
 
 
@@ -275,7 +264,7 @@ def test_get_metric_returns_none_when_no_rows() -> None:
     with patch.object(
         provider._session, "post", return_value=_immediate_result_resp([])
     ):
-        result = provider.get_metric("overview_fees", _START, "solana")
+        result = provider.get_metric("overview_slots", _START, "solana")
 
     assert result is None
 
@@ -300,21 +289,19 @@ def test_fetch_rows_filters_out_of_range_dates() -> None:
     with patch.object(
         provider._session, "post", return_value=_immediate_result_resp(_RAW_ROWS)
     ):
-        rows = provider.fetch_rows(
-            "overview_tx_count_total", "2026-07-02", "2026-07-02"
-        )
+        rows = provider.fetch_rows("overview_slots", "2026-07-02", "2026-07-02")
 
     assert len(rows) == 1
     assert rows[0]["date"] == "2026-07-02"
 
 
 def test_fetch_rows_skips_rows_with_null_value() -> None:
-    rows_with_null = [{"block_date": "2026-07-01", "transactions": None}]
+    rows_with_null = [{"block_date": "2026-07-01", "slots": None}]
     provider = _make_provider()
     with patch.object(
         provider._session, "post", return_value=_immediate_result_resp(rows_with_null)
     ):
-        result = provider.fetch_rows("overview_tx_count_total", _START, _START)
+        result = provider.fetch_rows("overview_slots", _START, _START)
 
     assert result == []
 
@@ -495,17 +482,20 @@ def test_get_metric_stablecoin_active_addresses() -> None:
 
 # -- defi metrics --------------------------------------------------------------
 
-_DEX_ROWS = [
+_DEX_VOLUME_ROWS = [
+    {"block_date": "2026-07-01", "dex_volume": 4_200_000_000.0},
+    {"block_date": "2026-07-02", "dex_volume": 3_900_000_000.0},
+]
+
+_DEX_ACTIVITY_ROWS = [
     {
         "block_date": "2026-07-01",
-        "dex_volume": 4_200_000_000.0,
         "dex_transactions": 18_000_000,
         "traders": 950_000,
         "dex_counts": 12,
     },
     {
         "block_date": "2026-07-02",
-        "dex_volume": 3_900_000_000.0,
         "dex_transactions": 17_500_000,
         "traders": 920_000,
         "dex_counts": 11,
@@ -516,7 +506,7 @@ _DEX_ROWS = [
 def test_fetch_rows_defi_dex_volume() -> None:
     provider = _make_provider()
     with patch.object(
-        provider._session, "post", return_value=_immediate_result_resp(_DEX_ROWS)
+        provider._session, "post", return_value=_immediate_result_resp(_DEX_VOLUME_ROWS)
     ):
         rows = provider.fetch_rows("defi_dex_volume", _START, "2026-07-02")
 
@@ -528,7 +518,9 @@ def test_fetch_rows_defi_dex_volume() -> None:
 def test_fetch_rows_defi_dex_transactions() -> None:
     provider = _make_provider()
     with patch.object(
-        provider._session, "post", return_value=_immediate_result_resp(_DEX_ROWS)
+        provider._session,
+        "post",
+        return_value=_immediate_result_resp(_DEX_ACTIVITY_ROWS),
     ):
         rows = provider.fetch_rows("defi_dex_transactions", _START, "2026-07-02")
 
@@ -538,7 +530,9 @@ def test_fetch_rows_defi_dex_transactions() -> None:
 def test_fetch_rows_defi_dex_traders() -> None:
     provider = _make_provider()
     with patch.object(
-        provider._session, "post", return_value=_immediate_result_resp(_DEX_ROWS)
+        provider._session,
+        "post",
+        return_value=_immediate_result_resp(_DEX_ACTIVITY_ROWS),
     ):
         rows = provider.fetch_rows("defi_dex_traders", _START, "2026-07-02")
 
@@ -548,20 +542,21 @@ def test_fetch_rows_defi_dex_traders() -> None:
 def test_fetch_rows_defi_dex_count() -> None:
     provider = _make_provider()
     with patch.object(
-        provider._session, "post", return_value=_immediate_result_resp(_DEX_ROWS)
+        provider._session,
+        "post",
+        return_value=_immediate_result_resp(_DEX_ACTIVITY_ROWS),
     ):
         rows = provider.fetch_rows("defi_dex_count", _START, "2026-07-02")
 
     assert rows[0]["value"] == 12.0
 
 
-def test_defi_metrics_share_one_query_call() -> None:
-    """All four DeFi metrics share query 15093 — only one POST per date range."""
+def test_defi_activity_metrics_share_one_query_call() -> None:
+    """dex_transactions, dex_traders, and dex_count share query 15103 — one POST."""
     provider = _make_provider()
-    mock_post = MagicMock(return_value=_immediate_result_resp(_DEX_ROWS))
+    mock_post = MagicMock(return_value=_immediate_result_resp(_DEX_ACTIVITY_ROWS))
 
     with patch.object(provider._session, "post", mock_post):
-        provider.fetch_rows("defi_dex_volume", _START, "2026-07-02")
         provider.fetch_rows("defi_dex_transactions", _START, "2026-07-02")
         provider.fetch_rows("defi_dex_traders", _START, "2026-07-02")
         provider.fetch_rows("defi_dex_count", _START, "2026-07-02")
@@ -569,10 +564,27 @@ def test_defi_metrics_share_one_query_call() -> None:
     assert mock_post.call_count == 1
 
 
+def test_defi_volume_uses_separate_query_from_activity_metrics() -> None:
+    """dex_volume uses query 15093; activity metrics use query 15103."""
+    provider = _make_provider()
+    mock_post = MagicMock(
+        side_effect=[
+            _immediate_result_resp(_DEX_VOLUME_ROWS),
+            _immediate_result_resp(_DEX_ACTIVITY_ROWS),
+        ]
+    )
+
+    with patch.object(provider._session, "post", mock_post):
+        provider.fetch_rows("defi_dex_volume", _START, "2026-07-02")
+        provider.fetch_rows("defi_dex_transactions", _START, "2026-07-02")
+
+    assert mock_post.call_count == 2
+
+
 def test_get_metric_defi_dex_volume_returns_defi_model() -> None:
     provider = _make_provider()
     with patch.object(
-        provider._session, "post", return_value=_immediate_result_resp(_DEX_ROWS)
+        provider._session, "post", return_value=_immediate_result_resp(_DEX_VOLUME_ROWS)
     ):
         result = provider.get_metric("defi_dex_volume", _START, "solana")
 
@@ -585,7 +597,9 @@ def test_get_metric_defi_dex_volume_returns_defi_model() -> None:
 def test_get_metric_defi_dex_traders_returns_defi_model() -> None:
     provider = _make_provider()
     with patch.object(
-        provider._session, "post", return_value=_immediate_result_resp(_DEX_ROWS)
+        provider._session,
+        "post",
+        return_value=_immediate_result_resp(_DEX_ACTIVITY_ROWS),
     ):
         result = provider.get_metric("defi_dex_traders", _START, "solana")
 
