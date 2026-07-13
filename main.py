@@ -11,7 +11,6 @@ Usage:
     python main.py --methodology
 """
 
-
 from __future__ import annotations
 
 import argparse
@@ -33,6 +32,7 @@ from providers.dune import Dune
 from providers.rwa import Rwa
 from providers.stakewiz import Stakewiz
 from providers.token_terminal import TokenTerminal
+from providers.topledger import TopLedger
 from providers.validators_app import ValidatorsApp
 
 OUTPUT_DIR = Path(__file__).parent / "_output"
@@ -49,6 +49,7 @@ PROVIDER_REGISTRY: List[tuple[str, Type[BaseProvider], Optional[str]]] = [
     ("rwa", Rwa, "RWA_API_KEY"),
     ("stakewiz", Stakewiz, None),
     ("token_terminal", TokenTerminal, "TOKEN_TERMINAL_API_KEY"),
+    ("topledger", TopLedger, "TOPLEDGER_API_KEY"),
     ("validators_app", ValidatorsApp, "VALIDATORS_APP_API_TOKEN"),
 ]
 
