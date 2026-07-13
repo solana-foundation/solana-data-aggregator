@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from metrics.defi import Defi, DefiMetricType
 from metrics.overview import Overview, OverviewMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
 from providers.topledger import TopLedger
@@ -456,6 +457,141 @@ def test_get_metric_stablecoin_transfer_count() -> None:
     assert isinstance(result, Stablecoin)
     assert result.metric_type == StablecoinMetricType.TRANSFER_COUNT
     assert result.value == 4_200_000.0
+
+
+_ACTIVE_ADDRESS_ROWS = [
+    {"block_date": "2026-07-01", "active_address": 980_000},
+    {"block_date": "2026-07-02", "active_address": 1_020_000},
+]
+
+
+def test_fetch_rows_stablecoin_active_addresses() -> None:
+    provider = _make_provider()
+    with patch.object(
+        provider._session,
+        "post",
+        return_value=_immediate_result_resp(_ACTIVE_ADDRESS_ROWS),
+    ):
+        rows = provider.fetch_rows("stablecoin_active_addresses", _START, "2026-07-02")
+
+    assert len(rows) == 2
+    assert rows[0] == {"date": "2026-07-01", "value": 980_000.0}
+    assert rows[1] == {"date": "2026-07-02", "value": 1_020_000.0}
+
+
+def test_get_metric_stablecoin_active_addresses() -> None:
+    provider = _make_provider()
+    with patch.object(
+        provider._session,
+        "post",
+        return_value=_immediate_result_resp(_ACTIVE_ADDRESS_ROWS),
+    ):
+        result = provider.get_metric("stablecoin_active_addresses", _START, "solana")
+
+    assert isinstance(result, Stablecoin)
+    assert result.metric_type == StablecoinMetricType.ACTIVE_ADDRESSES
+    assert result.value == 980_000.0
+
+
+# -- defi metrics --------------------------------------------------------------
+
+_DEX_ROWS = [
+    {
+        "block_date": "2026-07-01",
+        "dex_volume": 4_200_000_000.0,
+        "dex_transactions": 18_000_000,
+        "traders": 950_000,
+        "dex_counts": 12,
+    },
+    {
+        "block_date": "2026-07-02",
+        "dex_volume": 3_900_000_000.0,
+        "dex_transactions": 17_500_000,
+        "traders": 920_000,
+        "dex_counts": 11,
+    },
+]
+
+
+def test_fetch_rows_defi_dex_volume() -> None:
+    provider = _make_provider()
+    with patch.object(
+        provider._session, "post", return_value=_immediate_result_resp(_DEX_ROWS)
+    ):
+        rows = provider.fetch_rows("defi_dex_volume", _START, "2026-07-02")
+
+    assert len(rows) == 2
+    assert rows[0] == {"date": "2026-07-01", "value": pytest.approx(4_200_000_000.0)}
+    assert rows[1] == {"date": "2026-07-02", "value": pytest.approx(3_900_000_000.0)}
+
+
+def test_fetch_rows_defi_dex_transactions() -> None:
+    provider = _make_provider()
+    with patch.object(
+        provider._session, "post", return_value=_immediate_result_resp(_DEX_ROWS)
+    ):
+        rows = provider.fetch_rows("defi_dex_transactions", _START, "2026-07-02")
+
+    assert rows[0]["value"] == 18_000_000.0
+
+
+def test_fetch_rows_defi_dex_traders() -> None:
+    provider = _make_provider()
+    with patch.object(
+        provider._session, "post", return_value=_immediate_result_resp(_DEX_ROWS)
+    ):
+        rows = provider.fetch_rows("defi_dex_traders", _START, "2026-07-02")
+
+    assert rows[0]["value"] == 950_000.0
+
+
+def test_fetch_rows_defi_dex_count() -> None:
+    provider = _make_provider()
+    with patch.object(
+        provider._session, "post", return_value=_immediate_result_resp(_DEX_ROWS)
+    ):
+        rows = provider.fetch_rows("defi_dex_count", _START, "2026-07-02")
+
+    assert rows[0]["value"] == 12.0
+
+
+def test_defi_metrics_share_one_query_call() -> None:
+    """All four DeFi metrics share query 15093 — only one POST per date range."""
+    provider = _make_provider()
+    mock_post = MagicMock(return_value=_immediate_result_resp(_DEX_ROWS))
+
+    with patch.object(provider._session, "post", mock_post):
+        provider.fetch_rows("defi_dex_volume", _START, "2026-07-02")
+        provider.fetch_rows("defi_dex_transactions", _START, "2026-07-02")
+        provider.fetch_rows("defi_dex_traders", _START, "2026-07-02")
+        provider.fetch_rows("defi_dex_count", _START, "2026-07-02")
+
+    assert mock_post.call_count == 1
+
+
+def test_get_metric_defi_dex_volume_returns_defi_model() -> None:
+    provider = _make_provider()
+    with patch.object(
+        provider._session, "post", return_value=_immediate_result_resp(_DEX_ROWS)
+    ):
+        result = provider.get_metric("defi_dex_volume", _START, "solana")
+
+    assert isinstance(result, Defi)
+    assert result.metric_type == DefiMetricType.DEX_VOLUME
+    assert result.value == pytest.approx(4_200_000_000.0)
+    assert result.date == datetime.date.fromisoformat(_START)
+
+
+def test_get_metric_defi_dex_traders_returns_defi_model() -> None:
+    provider = _make_provider()
+    with patch.object(
+        provider._session, "post", return_value=_immediate_result_resp(_DEX_ROWS)
+    ):
+        result = provider.get_metric("defi_dex_traders", _START, "solana")
+
+    assert isinstance(result, Defi)
+    assert result.metric_type == DefiMetricType.DEX_TRADERS
+    assert result.value == 950_000.0
 
 
 # -- constructor ---------------------------------------------------------------

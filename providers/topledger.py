@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+from metrics.defi import Defi, DefiMetricType
 from metrics.overview import Overview, OverviewMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
 from providers.base import BaseProvider
@@ -146,6 +147,57 @@ class TopLedger(BaseProvider):
             ),
             "methodology_url": "https://analytics.topledger.xyz/tl/queries/15091",
         },
+        "stablecoin_active_addresses": {
+            "query_id": 15092,
+            "date_field": "block_date",
+            "value_field": "active_address",
+            "methodology": (
+                "Daily count of unique signers of stablecoin Transfer and TransferChecked "
+                "instructions on Solana, across both SPL Token and SPL Token-2022 programs."
+            ),
+            "methodology_url": "https://analytics.topledger.xyz/tl/queries/15092",
+        },
+        "defi_dex_volume": {
+            "query_id": 15093,
+            "date_field": "block_date",
+            "value_field": "dex_volume",
+            "methodology": (
+                "Daily USD DEX trading volume on Solana. Volume is priced using 1-minute "
+                "token prices with a priority order: SOL-side first, then stablecoin-side, "
+                "then minimum of both sides. Excludes non-standard Orca Whirlpool configs, "
+                "VDOR-named tokens, and wash-trade-prone pools."
+            ),
+            "methodology_url": "https://analytics.topledger.xyz/tl/queries/15093",
+        },
+        "defi_dex_transactions": {
+            "query_id": 15093,
+            "date_field": "block_date",
+            "value_field": "dex_transactions",
+            "methodology": (
+                "Daily count of unique DEX swap transactions on Solana, "
+                "deduplicated by (block_slot, tx_index)."
+            ),
+            "methodology_url": "https://analytics.topledger.xyz/tl/queries/15093",
+        },
+        "defi_dex_traders": {
+            "query_id": 15093,
+            "date_field": "block_date",
+            "value_field": "traders",
+            "methodology": (
+                "Daily count of unique wallet signers initiating DEX swaps on Solana."
+            ),
+            "methodology_url": "https://analytics.topledger.xyz/tl/queries/15093",
+        },
+        "defi_dex_count": {
+            "query_id": 15093,
+            "date_field": "block_date",
+            "value_field": "dex_counts",
+            "methodology": (
+                "Daily count of distinct DEX programs (inner_program) with trading "
+                "activity on Solana, after excluding filtered pools and mints."
+            ),
+            "methodology_url": "https://analytics.topledger.xyz/tl/queries/15093",
+        },
     }
 
     _OVERVIEW_METRIC_TYPE_MAP: Dict[str, OverviewMetricType] = {
@@ -163,6 +215,14 @@ class TopLedger(BaseProvider):
         "stablecoin_count": StablecoinMetricType.COUNT,
         "stablecoin_transfer_volume": StablecoinMetricType.TRANSFER_VOLUME,
         "stablecoin_transfer_count": StablecoinMetricType.TRANSFER_COUNT,
+        "stablecoin_active_addresses": StablecoinMetricType.ACTIVE_ADDRESSES,
+    }
+
+    _DEFI_METRIC_TYPE_MAP: Dict[str, DefiMetricType] = {
+        "defi_dex_volume": DefiMetricType.DEX_VOLUME,
+        "defi_dex_transactions": DefiMetricType.DEX_TRANSACTIONS,
+        "defi_dex_traders": DefiMetricType.DEX_TRADERS,
+        "defi_dex_count": DefiMetricType.DEX_COUNT,
     }
 
     _POLL_INTERVAL = 2  # seconds between job status polls
@@ -285,7 +345,7 @@ class TopLedger(BaseProvider):
 
     def get_metric(
         self, metric: str, date: str, chain: str
-    ) -> Overview | Stablecoin | None:
+    ) -> Overview | Stablecoin | Defi | None:
         """Fetch one metric for one date and return it as a typed metric model."""
         rows = self.fetch_rows(metric, date, date)
         if not rows:
@@ -303,6 +363,12 @@ class TopLedger(BaseProvider):
         if stablecoin_type is not None:
             return Stablecoin.from_metric_type(
                 metric_type=stablecoin_type, date=parsed_date, value=value
+            )
+
+        defi_type = self._DEFI_METRIC_TYPE_MAP.get(metric)
+        if defi_type is not None:
+            return Defi.from_metric_type(
+                metric_type=defi_type, date=parsed_date, value=value
             )
 
         return None
