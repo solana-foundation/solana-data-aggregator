@@ -125,6 +125,11 @@ class TokenTerminal(BaseProvider):
             row_date = str(row.get(config["date_field"], ""))[:10]
             if not row_date or not (start_date <= row_date <= end_date):
                 continue
+            # Sum the values that are present for this day. If one series has no
+            # value for a date (e.g. bridged supply on dates before any bridged
+            # stablecoins existed on the chain), the absent series is treated as
+            # zero and the day still reports the available total. Only days with
+            # no values at all for any requested metric are dropped.
             present = [row.get(field) for field in value_fields]
             present = [v for v in present if v is not None]
             if not present:

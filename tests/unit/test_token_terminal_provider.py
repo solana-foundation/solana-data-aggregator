@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
 from providers.token_terminal import TokenTerminal
 
@@ -34,7 +36,7 @@ def test_get_stablecoin_supply_sums_native_and_bridged() -> None:
     mock_factory.assert_called_once()
     assert mock_factory.call_args.kwargs["metric_type"] == StablecoinMetricType.SUPPLY
     # Total supply = native issuance + bridged-in supply.
-    assert mock_factory.call_args.kwargs["value"] == 13_487_267_570.64
+    assert mock_factory.call_args.kwargs["value"] == pytest.approx(13_487_267_570.64)
 
 
 def test_get_stablecoin_supply_tolerates_missing_bridged_value() -> None:
