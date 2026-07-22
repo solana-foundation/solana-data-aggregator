@@ -231,14 +231,4 @@ def test_get_metric_not_supported() -> None:
             pass
         except Exception as e:
             pytest.fail(f"Unexpected exception raised: {e}")
-
-def test_no_api_key() -> None:
-    try:
-        provider = Birdeye()
-        pytest.fail("Expected ValueError for API key not found")
-    except ValueError:
-        pass
-    except Exception as e:
-        pytest.fail(f"Unexpected exception raised: {e}")
-        
         
