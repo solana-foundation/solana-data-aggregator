@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import datetime
 import os
 from typing import Any, Dict, List, Optional
 
@@ -62,7 +62,7 @@ class Birdeye(BaseProvider):
         return resp.json()
 
     def _date_to_timestamp(self, date_str: str) -> int:
-        dt = datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        dt = datetime.datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc)
         return int(dt.timestamp())
 
     # -- BaseProvider interface ---------------------------------------------
@@ -162,13 +162,16 @@ class Birdeye(BaseProvider):
                         },
                     )
                     data = response.get("data", [])
+                    metric = config["metric_value"]
                     if data is not None:
                         for record in data.get("items", []):
-                            result.append(
-                                {
-                                    "date": record["unix_time"],
-                                    "value": record[config["metric_value"]],
-                                }
-                            )  
+                            if metric in record:
+                                result.append(
+                                    {
+                                        "date": record["unix_time"],
+                                        "value": record[metric],
+                                    }
+                                ) 
                     start_timestamp += count*24*60*60  # Move to the next batch of days
+        
         return result
