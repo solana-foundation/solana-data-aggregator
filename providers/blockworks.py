@@ -19,7 +19,7 @@ class Blockworks(BaseProvider):
 
     METRIC_MAP: Dict[str, Dict[str, Any]] = {
         "stablecoin_supply": {
-            "endpoint": "/metrics/stablecoin-circulating-supply-total-usd",
+            "endpoint": "/metrics/stablecoin-supply-total-usd",
             "params": {"project": "solana"},
             "data_path": ["solana"],
             "date_field": "date",
