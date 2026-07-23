@@ -150,10 +150,6 @@ def _make_mock_resp(payload):
 def _date(date_str: str) -> datetime.date:
     return datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
 
-def _date_to_timestamp(date_str: str) -> int:
-    dt = datetime.datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc)
-    return int(dt.timestamp())
-
 def test_get_metric_overview_sol_price() -> None:
     provider = Birdeye(api_key="xxx")
 
@@ -216,9 +212,9 @@ def test_fetch_rows_overview_sol_price() -> None:
     ):
         rows = provider.fetch_rows("overview_sol_price", _DATE_7_7, _DATE_7_8)
         assert len(rows) == 2
-        assert rows[0]["date"] == _date_to_timestamp(_DATE_7_7)
+        assert rows[0]["date"] == _DATE_7_7
         assert rows[0]["value"] == 77.77
-        assert rows[1]["date"] == _date_to_timestamp(_DATE_7_8)
+        assert rows[1]["date"] == _DATE_7_8
         assert rows[1]["value"] == 78.78
 
 def test_fetch_rows_stablecoin_defi() -> None:
@@ -229,19 +225,19 @@ def test_fetch_rows_stablecoin_defi() -> None:
     ):
         rows = provider.fetch_rows("stablecoin_supply", _DATE_7_7, _DATE_7_8)
         assert len(rows) == 1
-        assert rows[0]["date"] == _date_to_timestamp(_DATE_7_7)
+        assert rows[0]["date"] == _DATE_7_7
         assert rows[0]["value"] == 14637051338.896027
 
         rows = provider.fetch_rows("defi_dex_volume", _DATE_7_7, _DATE_7_8)
         assert len(rows) == 2
-        assert rows[0]["date"] == _date_to_timestamp(_DATE_7_7)
+        assert rows[0]["date"] == _DATE_7_7
         assert rows[0]["value"] == 12066695086.76048
-        assert rows[1]["date"] == _date_to_timestamp(_DATE_7_8)
+        assert rows[1]["date"] == _DATE_7_8
         assert rows[1]["value"] == 1234567890
 
         rows = provider.fetch_rows("defi_dex_transactions", _DATE_7_7, _DATE_7_8)
         assert len(rows) == 1
-        assert rows[0]["date"] == _date_to_timestamp(_DATE_7_7)
+        assert rows[0]["date"] == _DATE_7_7
         assert rows[0]["value"] == 30908550
 
 def test_get_metric_overview_sol_price_malformed() -> None:

@@ -22,15 +22,15 @@ class Birdeye(BaseProvider):
         },
         "stablecoin_supply": {
             "endpoint": "/defi/v3/market-history",
-            "metric_value": "stable_coin_market_cap",
+            "metric_field": "stable_coin_market_cap",
         },
         "defi_dex_volume": {
             "endpoint": "/defi/v3/market-history",
-            "metric_value": "volume_usd",
+            "metric_field": "volume_usd",
         },
         "defi_dex_transactions": {
             "endpoint": "/defi/v3/market-history",
-            "metric_value": "trade_count",
+            "metric_field": "trade_count",
         },
     }
 
@@ -65,6 +65,9 @@ class Birdeye(BaseProvider):
     def _date_to_timestamp(self, date_str: str) -> int:
         dt = datetime.datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc)
         return int(dt.timestamp())
+
+    def _timestamp_to_date(self, timestamp: int) -> str:
+        return datetime.datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d")
 
     # -- BaseProvider interface ---------------------------------------------
 
@@ -149,7 +152,7 @@ class Birdeye(BaseProvider):
                         if "value" in record:
                             result.append(
                                 {
-                                    "date": timestamp,
+                                    "date": self._timestamp_to_date(timestamp),
                                     "value": record["value"],
                                 }
                             )
@@ -169,7 +172,7 @@ class Birdeye(BaseProvider):
                     )
 
                     data = response.get("data")
-                    metric = config["metric_value"]
+                    metric_field = config["metric_field"]
                     last_timestamp = start_timestamp
                     if data is not None:
                         for record in data.get("items", []):
@@ -179,11 +182,11 @@ class Birdeye(BaseProvider):
                             if timestamp > last_timestamp:
                                 last_timestamp = timestamp
                             
-                            if metric in record:
+                            if metric_field in record:
                                 result.append(
                                     {
-                                        "date": timestamp,
-                                        "value": record[metric],
+                                        "date": self._timestamp_to_date(timestamp),
+                                        "value": record[metric_field],
                                     }
                                 ) 
                         if not data.get("has_more", False):

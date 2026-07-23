@@ -103,13 +103,14 @@ def test_get_sol_price_4_days() -> None:
     for row in rows:
         assert "date" in row
         assert "value" in row
-        assert isinstance(row["date"], int)
+        assert isinstance(row["date"], str)
         assert isinstance(row["value"], float)
         assert row["value"] > 0
-        assert start_timestamp <= row["date"]
-        assert row["date"] <= end_timestamp
-        assert row["date"] > previous_date
-        previous_date = row["date"]
+        timestamp = _date_to_timestamp(row["date"])
+        assert start_timestamp <= timestamp
+        assert timestamp <= end_timestamp
+        assert timestamp > previous_date
+        previous_date = timestamp
 
 @pytest.mark.integration
 def test_get_dex_volume_4_days() -> None:
@@ -131,13 +132,14 @@ def test_get_dex_volume_4_days() -> None:
     for row in rows:
         assert "date" in row
         assert "value" in row
-        assert isinstance(row["date"], int)
+        assert isinstance(row["date"], str)
         assert isinstance(row["value"], float)
         assert row["value"] > 0
-        assert start_timestamp <= row["date"]
-        assert row["date"] <= end_timestamp
-        assert row["date"] > previous_date
-        previous_date = row["date"]
+        timestamp = _date_to_timestamp(row["date"])
+        assert start_timestamp <= timestamp
+        assert timestamp <= end_timestamp
+        assert timestamp > previous_date
+        previous_date = timestamp
 
 @pytest.mark.integration
 def test_get_dex_volume_24_days() -> None:
@@ -159,10 +161,11 @@ def test_get_dex_volume_24_days() -> None:
     for row in rows:
         assert "date" in row
         assert "value" in row
-        assert isinstance(row["date"], int)
+        assert isinstance(row["date"], str)
         assert isinstance(row["value"], float)
         assert row["value"] > 0
-        assert start_timestamp <= row["date"]
-        assert row["date"] <= end_timestamp
-        assert row["date"] > previous_date
-        previous_date = row["date"]
+        timestamp = _date_to_timestamp(row["date"])
+        assert start_timestamp <= timestamp
+        assert timestamp <= end_timestamp
+        assert timestamp > previous_date
+        previous_date = timestamp
