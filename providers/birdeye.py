@@ -21,21 +21,22 @@ class Birdeye(BaseProvider):
             "endpoint": "/defi/history_price",
         },
         "stablecoin_supply": {
-            "endpoint": "/defi/v3/market_history",
+            "endpoint": "/defi/v3/market-history",
             "metric_value": "stable_coin_market_cap",
         },
         "defi_dex_volume": {
-            "endpoint": "/defi/v3/market_history",
+            "endpoint": "/defi/v3/market-history",
             "metric_value": "volume_usd",
         },
         "defi_dex_transactions": {
-            "endpoint": "/defi/v3/market_history",
+            "endpoint": "/defi/v3/market-history",
             "metric_value": "trade_count",
         },
     }
 
     BASE_URL = "https://public-api.birdeye.so"
     SOL_TOKEN_ADDRESS = "So11111111111111111111111111111111111111112"
+    ONE_DAY_SECONDS = 24 * 60 * 60
 
     def __init__(self, *, api_key: Optional[str] = None) -> None:
         resolved_api_key = api_key or os.environ.get("BIRDEYE_API_KEY") or ""
@@ -155,7 +156,7 @@ class Birdeye(BaseProvider):
 
             case "stablecoin_supply" | "defi_dex_volume" | "defi_dex_transactions":
                 while start_timestamp <= end_timestamp:
-                    count = min(10, (end_timestamp - start_timestamp) // (24 * 60 * 60) + 1)
+                    count = min(10, (end_timestamp - start_timestamp) // self.ONE_DAY_SECONDS + 1)
                     response = self._get(
                         f"{self.base_url}{endpoint}",
                         chain="solana",
@@ -166,13 +167,17 @@ class Birdeye(BaseProvider):
                             "count": count,
                         },
                     )
+
                     data = response.get("data")
                     metric = config["metric_value"]
+                    last_timestamp = start_timestamp
                     if data is not None:
                         for record in data.get("items", []):
                             timestamp = record.get("unix_time", -1)
                             if timestamp < start_timestamp or timestamp > end_timestamp:
                                 continue
+                            if timestamp > last_timestamp:
+                                last_timestamp = timestamp
                             
                             if metric in record:
                                 result.append(
@@ -181,6 +186,9 @@ class Birdeye(BaseProvider):
                                         "value": record[metric],
                                     }
                                 ) 
-                    start_timestamp += count*24*60*60  # Move to the next batch of days
+                        if not data.get("has_more", False):
+                            break
+                    
+                    start_timestamp = last_timestamp + self.ONE_DAY_SECONDS # Move to the next batch of days
         
         return result

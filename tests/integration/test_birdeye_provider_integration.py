@@ -15,7 +15,12 @@ from providers.birdeye import Birdeye
 load_dotenv()
 API_KEY = os.environ.get("BIRDEYE_API_KEY")
 
-_TODAY = datetime.date.today().isoformat()
+_TODAY = datetime.date.today()
+_TODAY_STR = _TODAY.isoformat()
+
+def _date_to_timestamp(date_str: str) -> int:
+    dt = datetime.datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=datetime.timezone.utc)
+    return int(dt.timestamp())
 
 @pytest.mark.integration
 def test_get_sol_price_live_api() -> None:
@@ -23,7 +28,7 @@ def test_get_sol_price_live_api() -> None:
     provider = Birdeye(api_key=API_KEY)
     metric = provider.get_metric(
         metric="overview_sol_price",
-        date=_TODAY,
+        date=_TODAY_STR,
         chain="solana",
     )
 
@@ -38,7 +43,7 @@ def test_get_stablecoin_supply_live_api() -> None:
     provider = Birdeye(api_key=API_KEY)
     metric = provider.get_metric(
         metric="stablecoin_supply",
-        date=_TODAY,
+        date=_TODAY_STR,
         chain="solana",
     )
 
@@ -53,7 +58,7 @@ def test_get_dex_volume_live_api() -> None:
     provider = Birdeye(api_key=API_KEY)
     metric = provider.get_metric(
         metric="defi_dex_volume",
-        date=_TODAY,
+        date=_TODAY_STR,
         chain="solana",
     )
 
@@ -69,7 +74,7 @@ def test_get_dex_transactions_live_api() -> None:
     provider = Birdeye(api_key=API_KEY)
     metric = provider.get_metric(
         metric="defi_dex_transactions",
-        date=_TODAY,
+        date=_TODAY_STR,
         chain="solana",
     )
 
@@ -78,3 +83,86 @@ def test_get_dex_transactions_live_api() -> None:
     assert metric.metric_type == DefiMetricType.DEX_TRANSACTIONS
     assert metric.value > 0
 
+@pytest.mark.integration
+def test_get_sol_price_4_days() -> None:
+    """Calls the Birdeye public API directly and validates response mapping."""
+    _3DAYS_AGO_STR = (_TODAY - datetime.timedelta(days=3)).isoformat()
+    provider = Birdeye(api_key=API_KEY)
+    rows = provider.fetch_rows(
+        metric="overview_sol_price",
+        start_date=_3DAYS_AGO_STR,
+        end_date=_TODAY_STR,
+        chain="solana",
+    )
+
+    start_timestamp = _date_to_timestamp(_3DAYS_AGO_STR)
+    end_timestamp = _date_to_timestamp(_TODAY_STR)
+
+    assert len(rows) == 4
+    previous_date = 0
+    for row in rows:
+        assert "date" in row
+        assert "value" in row
+        assert isinstance(row["date"], int)
+        assert isinstance(row["value"], float)
+        assert row["value"] > 0
+        assert start_timestamp <= row["date"]
+        assert row["date"] <= end_timestamp
+        assert row["date"] > previous_date
+        previous_date = row["date"]
+
+@pytest.mark.integration
+def test_get_dex_volume_4_days() -> None:
+    """Calls the Birdeye public API directly and validates response mapping."""
+    _3DAYS_AGO_STR = (_TODAY - datetime.timedelta(days=3)).isoformat()
+    provider = Birdeye(api_key=API_KEY)
+    rows = provider.fetch_rows(
+        metric="defi_dex_volume",
+        start_date=_3DAYS_AGO_STR,
+        end_date=_TODAY_STR,
+        chain="solana",
+    )
+
+    start_timestamp = _date_to_timestamp(_3DAYS_AGO_STR)
+    end_timestamp = _date_to_timestamp(_TODAY_STR)
+    
+    assert len(rows) == 4
+    previous_date = 0
+    for row in rows:
+        assert "date" in row
+        assert "value" in row
+        assert isinstance(row["date"], int)
+        assert isinstance(row["value"], float)
+        assert row["value"] > 0
+        assert start_timestamp <= row["date"]
+        assert row["date"] <= end_timestamp
+        assert row["date"] > previous_date
+        previous_date = row["date"]
+
+@pytest.mark.integration
+def test_get_dex_volume_24_days() -> None:
+    """Calls the Birdeye public API directly and validates response mapping."""
+    _23DAYS_AGO_STR = (_TODAY - datetime.timedelta(days=23)).isoformat()
+    provider = Birdeye(api_key=API_KEY)
+    rows = provider.fetch_rows(
+        metric="defi_dex_volume",
+        start_date=_23DAYS_AGO_STR,
+        end_date=_TODAY_STR,
+        chain="solana",
+    )
+
+    start_timestamp = _date_to_timestamp(_23DAYS_AGO_STR)
+    end_timestamp = _date_to_timestamp(_TODAY_STR)
+    
+    assert len(rows) == 24
+    previous_date = 0
+    for row in rows:
+        assert "date" in row
+        assert "value" in row
+        assert isinstance(row["date"], int)
+        assert isinstance(row["value"], float)
+        assert row["value"] > 0
+        assert start_timestamp <= row["date"]
+        assert row["date"] <= end_timestamp
+        assert row["date"] > previous_date
+        previous_date = row["date"]
