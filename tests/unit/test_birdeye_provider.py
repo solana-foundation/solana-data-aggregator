@@ -62,6 +62,28 @@ _MARKET_HISTORY_RESPONSE_MULTI_DAY = {
         ]
     }
 }
+_MARKET_HISTORY_RESPONSE_MALFORMED_1 = {
+    "data": {
+        "success": True,
+        "items": [
+            {
+                "xxx": 1783468800,
+                "volume_usd": 1234567890,
+            }
+        ]
+    }
+}
+_MARKET_HISTORY_RESPONSE_MALFORMED_2 = {
+    "data": {
+        "success": True,
+        "items": [
+            {
+                "unix_time": 1783468800,
+                "xxx": 1234567890,
+            }
+        ]
+    }
+}
 _PRICE_HISTORY_RESPONSE = {
     "data": {
         "success": True,
@@ -88,11 +110,34 @@ _PRICE_HISTORY_RESPONSE_MULTI_DAY = {
         ]
     }
 }
+_PRICE_HISTORY_RESPONSE_MALFORMED_1 = {
+    "data": {
+        "success": True,
+        "items": [
+            {
+                "unixTime": 1783382400,
+                "xxx": 77.77
+            }
+        ]
+    }
+}
+_PRICE_HISTORY_RESPONSE_MALFORMED_2 = {
+    "data": {
+        "success": True,
+        "items": [
+            {
+                "xxx": 1783382400,
+                "value": 77.77
+            }
+        ]
+    }
+}
 _RESPONSE_FAILURE = {
     "data": {
         "success": False,
-        "items": []
     }
+}
+_RESPONSE_EMPTY = {
 }
 
 
@@ -199,6 +244,36 @@ def test_fetch_rows_stablecoin_defi() -> None:
         assert rows[0]["date"] == _date_to_timestamp(_DATE_7_7)
         assert rows[0]["value"] == 30908550
 
+def test_get_metric_overview_sol_price_malformed() -> None:
+    provider = Birdeye(api_key="xxx")
+
+    with patch.object(
+        provider._session, "get", return_value=_make_mock_resp(_PRICE_HISTORY_RESPONSE_MALFORMED_1)
+    ):
+        result = provider.get_metric("overview_sol_price", _DATE_7_7, "solana")
+        assert result is None
+
+    with patch.object(
+        provider._session, "get", return_value=_make_mock_resp(_PRICE_HISTORY_RESPONSE_MALFORMED_2)
+    ):
+        result = provider.get_metric("overview_sol_price", _DATE_7_7, "solana")
+        assert result is None
+
+def test_get_metric_defi_malformed() -> None:
+    provider = Birdeye(api_key="xxx")
+
+    with patch.object(
+        provider._session, "get", return_value=_make_mock_resp(_MARKET_HISTORY_RESPONSE_MALFORMED_1)
+    ):
+        result = provider.get_metric("defi_dex_volume", _DATE_7_7, "solana")
+        assert result is None
+
+    with patch.object(
+        provider._session, "get", return_value=_make_mock_resp(_MARKET_HISTORY_RESPONSE_MALFORMED_2)
+    ):
+        result = provider.get_metric("defi_dex_volume", _DATE_7_7, "solana")
+        assert result is None
+
 def test_get_metric_failed() -> None:
     provider = Birdeye(api_key="xxx")
 
@@ -217,6 +292,15 @@ def test_get_metric_failed() -> None:
         result = provider.get_metric("defi_dex_transactions", _DATE_7_7, "solana")
         assert result is None
 
+def test_get_metric_empty() -> None:
+    provider = Birdeye(api_key="xxx")
+
+    with patch.object(
+        provider._session, "get", return_value=_make_mock_resp(_RESPONSE_EMPTY)
+    ):
+        result = provider.get_metric("overview_sol_price", _DATE_7_7, "solana")
+        assert result is None
+
 
 def test_get_metric_not_supported() -> None:
     provider = Birdeye(api_key="xxx")
@@ -227,8 +311,8 @@ def test_get_metric_not_supported() -> None:
         try:
             result = provider.get_metric("defi_dex_count", _DATE_7_7, "solana")
             pytest.fail(f"Expected ValueError for not supported metric, but got result: {result}")
-        except ValueError:
-            pass
+        except ValueError as e: 
+            assert "Unknown metric" in str(e)
         except Exception as e:
             pytest.fail(f"Unexpected exception raised: {e}")
         

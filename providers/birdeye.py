@@ -123,6 +123,8 @@ class Birdeye(BaseProvider):
             raise ValueError(f"Unknown metric '{metric}'. Available: {available}")
         
         endpoint = config["endpoint"]
+        start_timestamp = self._date_to_timestamp(start_date)
+        end_timestamp = self._date_to_timestamp(end_date)
 
         match metric:
             case "overview_sol_price":
@@ -133,22 +135,25 @@ class Birdeye(BaseProvider):
                         "address": self.SOL_TOKEN_ADDRESS,
                         "address_type": "token",
                         "type": "1D",
-                        "time_from": self._date_to_timestamp(start_date),
-                        "time_to": self._date_to_timestamp(end_date)
+                        "time_from": start_timestamp,
+                        "time_to": end_timestamp
                     },
                 )
-                data = response.get("data", [])
+                data = response.get("data")
                 if data is not None:
                     for record in data.get("items", []):
-                        result.append(
-                            {
-                                "date": record["unixTime"],
-                                "value": record["value"],
-                            }
-                        )
+                        timestamp = record.get("unixTime", -1)
+                        if timestamp < start_timestamp or timestamp > end_timestamp:
+                            continue
+                        if "value" in record:
+                            result.append(
+                                {
+                                    "date": timestamp,
+                                    "value": record["value"],
+                                }
+                            )
+
             case "stablecoin_supply" | "defi_dex_volume" | "defi_dex_transactions":
-                start_timestamp = self._date_to_timestamp(start_date)
-                end_timestamp = self._date_to_timestamp(end_date)
                 while start_timestamp <= end_timestamp:
                     count = min(10, (end_timestamp - start_timestamp) // (24 * 60 * 60) + 1)
                     response = self._get(
@@ -161,14 +166,18 @@ class Birdeye(BaseProvider):
                             "count": count,
                         },
                     )
-                    data = response.get("data", [])
+                    data = response.get("data")
                     metric = config["metric_value"]
                     if data is not None:
                         for record in data.get("items", []):
+                            timestamp = record.get("unix_time", -1)
+                            if timestamp < start_timestamp or timestamp > end_timestamp:
+                                continue
+                            
                             if metric in record:
                                 result.append(
                                     {
-                                        "date": record["unix_time"],
+                                        "date": timestamp,
                                         "value": record[metric],
                                     }
                                 ) 
