@@ -67,7 +67,7 @@ class Birdeye(BaseProvider):
         return int(dt.timestamp())
 
     def _timestamp_to_date(self, timestamp: int) -> str:
-        return datetime.datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d")
+        return datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc).strftime("%Y-%m-%d")
 
     # -- BaseProvider interface ---------------------------------------------
 
