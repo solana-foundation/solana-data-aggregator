@@ -33,6 +33,7 @@ from providers.rwa import Rwa
 from providers.stakewiz import Stakewiz
 from providers.token_terminal import TokenTerminal
 from providers.topledger import TopLedger
+from providers.uniblock import Uniblock
 from providers.validators_app import ValidatorsApp
 
 OUTPUT_DIR = Path(__file__).parent / "_output"
@@ -50,6 +51,7 @@ PROVIDER_REGISTRY: List[tuple[str, Type[BaseProvider], Optional[str]]] = [
     ("stakewiz", Stakewiz, None),
     ("token_terminal", TokenTerminal, "TOKEN_TERMINAL_API_KEY"),
     ("topledger", TopLedger, "TOPLEDGER_API_KEY"),
+    ("uniblock", Uniblock, "UNIBLOCK_API_KEY"),
     ("validators_app", ValidatorsApp, "VALIDATORS_APP_API_TOKEN"),
 ]
 
