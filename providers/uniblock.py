@@ -33,19 +33,42 @@ class Uniblock(BaseProvider):
             "kind": "chart",
             "endpoint": "/market-data/chart-range",
             "value_field": "price",
+            "methodology": (
+                "Daily average SOL/USD price computed by averaging Uniblock "
+                "unified market-data (CoinGecko-backed) intraday price points "
+                "per UTC day."
+            ),
+            "methodology_url": "https://docs.uniblock.dev/api-reference/market-data/get-token-market-chart",
         },
         "network_sol_price": {
             "kind": "chart",
             "endpoint": "/market-data/chart-range",
             "value_field": "price",
+            "methodology": (
+                "Daily average SOL/USD price computed by averaging Uniblock "
+                "unified market-data (CoinGecko-backed) intraday price points "
+                "per UTC day."
+            ),
+            "methodology_url": "https://docs.uniblock.dev/api-reference/market-data/get-token-market-chart",
         },
         "network_total_stake": {
             "kind": "rpc",
             "rpc_kind": "total_stake",
+            "methodology": (
+                "Total activated stake across current and delinquent vote "
+                "accounts from Solana getVoteAccounts, converted from lamports "
+                "to SOL. Current-state snapshot."
+            ),
+            "methodology_url": "https://docs.uniblock.dev/api-reference/json-rpc/send-json-rpc-requests",
         },
         "network_validator_count": {
             "kind": "rpc",
             "rpc_kind": "validator_count",
+            "methodology": (
+                "Count of current (actively voting) vote accounts from Solana "
+                "getVoteAccounts, excluding delinquent. Current-state snapshot."
+            ),
+            "methodology_url": "https://docs.uniblock.dev/api-reference/json-rpc/send-json-rpc-requests",
         },
     }
 
