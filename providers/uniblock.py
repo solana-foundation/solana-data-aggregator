@@ -87,7 +87,7 @@ class Uniblock(BaseProvider):
 
         if not resolved:
             raise ValueError("UNIBLOCK_API_KEY is required")
-        
+
         super().__init__(
             name="Uniblock",
             base_url=self.BASE_URL,
@@ -114,7 +114,7 @@ class Uniblock(BaseProvider):
             result = float(value)
         except (TypeError, ValueError):
             return None
-        
+
         return result if math.isfinite(result) else None
 
     # -- market-data (chart) ------------------------------------------------
@@ -188,7 +188,7 @@ class Uniblock(BaseProvider):
 
         if not isinstance(data, dict):
             return []
-        
+
         return self._daily_average(data, config["value_field"], start_date, end_date)
 
     # -- solana json-rpc (snapshot) -----------------------------------------
@@ -207,10 +207,10 @@ class Uniblock(BaseProvider):
 
         if not isinstance(payload, dict):
             raise RuntimeError(f"Unexpected RPC response for {method}: {payload!r}")
-        
+
         if payload.get("error"):
             raise RuntimeError(f"Solana RPC {method} failed: {payload['error']}")
-        
+
         return payload.get("result")
 
     def _get_vote_accounts(self) -> Dict[str, Any]:
@@ -222,7 +222,7 @@ class Uniblock(BaseProvider):
         accounts = self._get_vote_accounts()
         if rpc_kind == "validator_count":
             return float(len(accounts.get("current", [])))
-        
+
         if rpc_kind == "total_stake":
             lamports = 0.0
             for group in ("current", "delinquent"):
@@ -231,7 +231,7 @@ class Uniblock(BaseProvider):
                     if stake is not None:
                         lamports += stake
             return lamports / self._LAMPORTS_PER_SOL
-        
+
         return None
 
     # -- BaseProvider interface ---------------------------------------------
@@ -257,11 +257,11 @@ class Uniblock(BaseProvider):
         today = datetime.date.today().isoformat()
         if not (start_date <= today <= end_date):
             return []
-        
+
         value = self._rpc_value(config["rpc_kind"])
         if value is None:
             return []
-        
+
         return [{"date": today, "value": float(value)}]
 
     def get_metric(
@@ -277,7 +277,7 @@ class Uniblock(BaseProvider):
 
         if not rows:
             return None
-        
+
         value = rows[0]["value"]
         parsed_date = datetime.date.fromisoformat(date)
 
