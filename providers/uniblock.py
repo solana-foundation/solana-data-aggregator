@@ -102,8 +102,6 @@ class Uniblock(BaseProvider):
             raise_on_status=False,
         )
         self._session.mount("https://", HTTPAdapter(max_retries=retry))
-        # Snapshot cache so metrics sharing an RPC call fetch it only once.
-        self._vote_accounts: Optional[Dict[str, Any]] = None
 
     # -- shared helpers -----------------------------------------------------
 
@@ -202,10 +200,8 @@ class Uniblock(BaseProvider):
         return payload.get("result")
 
     def _get_vote_accounts(self) -> Dict[str, Any]:
-        if self._vote_accounts is None:
-            result = self._post_rpc("getVoteAccounts", [])
-            self._vote_accounts = result if isinstance(result, dict) else {}
-        return self._vote_accounts
+        result = self._post_rpc("getVoteAccounts", [])
+        return result if isinstance(result, dict) else {}
 
     def _rpc_value(self, rpc_kind: str) -> Optional[float]:
         """Compute a snapshot metric value from Solana JSON-RPC."""
@@ -250,9 +246,14 @@ class Uniblock(BaseProvider):
         return [{"date": today, "value": float(value)}]
 
     def get_metric(
-        self, metric: str, date: str, chain: str
+        self, metric: str, date: str, chain: str = _CHAIN
     ) -> Overview | Network | None:
         """Fetch one metric for one date and return it as a typed metric model."""
+        if chain != self._CHAIN:
+            raise ValueError(
+                f"Unsupported chain '{chain}'; Uniblock provider only serves "
+                f"'{self._CHAIN}'."
+            )
         rows = self.fetch_rows(metric, date, date)
         if not rows:
             return None

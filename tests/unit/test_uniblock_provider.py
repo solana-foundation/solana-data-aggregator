@@ -173,6 +173,12 @@ def test_get_metric_returns_none_when_no_rows() -> None:
         assert provider.get_metric("overview_sol_price", _DAY_1, "solana") is None
 
 
+def test_get_metric_unsupported_chain_raises() -> None:
+    provider = _make_provider()
+    with pytest.raises(ValueError, match="Unsupported chain"):
+        provider.get_metric("overview_sol_price", _DAY_1, "ethereum")
+
+
 # -- constructor --------------------------------------------------------------
 
 
@@ -231,15 +237,15 @@ def test_fetch_rows_validator_count_excludes_delinquent() -> None:
     assert rows == [{"date": _TODAY, "value": 2.0}]
 
 
-def test_vote_account_metrics_share_one_rpc_call() -> None:
-    """total_stake and validator_count both come from one getVoteAccounts POST."""
+def test_vote_accounts_fetched_fresh_each_call() -> None:
+    """No caching: every fetch_rows issues its own getVoteAccounts POST."""
     provider = _make_provider()
     mock_post = MagicMock(return_value=_make_mock_resp(_VOTE_ACCOUNTS_RESPONSE))
     with patch.object(provider._session, "post", mock_post):
         provider.fetch_rows("network_total_stake", _PAST, _TODAY)
         provider.fetch_rows("network_validator_count", _PAST, _TODAY)
 
-    assert mock_post.call_count == 1
+    assert mock_post.call_count == 2
 
 
 def test_rpc_snapshot_skipped_when_today_out_of_range() -> None:
