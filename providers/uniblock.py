@@ -84,8 +84,10 @@ class Uniblock(BaseProvider):
 
     def __init__(self, *, api_key: Optional[str] = None) -> None:
         resolved = api_key or os.environ.get("UNIBLOCK_API_KEY")
+
         if not resolved:
             raise ValueError("UNIBLOCK_API_KEY is required")
+        
         super().__init__(
             name="Uniblock",
             base_url=self.BASE_URL,
@@ -112,21 +114,21 @@ class Uniblock(BaseProvider):
             result = float(value)
         except (TypeError, ValueError):
             return None
+        
         return result if math.isfinite(result) else None
-
-    def _headers(self) -> Dict[str, str]:
-        return {"X-API-Key": self.api_key, "accept": "application/json"}
 
     # -- market-data (chart) ------------------------------------------------
 
     def _get(self, endpoint: str, *, params: Dict[str, Any]) -> Any:
+        headers = {"X-API-Key": self.api_key, "accept": "application/json"}
         resp = self._session.get(
             f"{self.base_url}{endpoint}",
             params=params,
-            headers=self._headers(),
+            headers=headers,
             timeout=self._TIMEOUT,
         )
         resp.raise_for_status()
+
         return resp.json()
 
     @staticmethod
@@ -135,21 +137,28 @@ class Uniblock(BaseProvider):
     ) -> List[Dict[str, Any]]:
         """Average intraday points per UTC day within the inclusive range."""
         buckets: Dict[str, List[float]] = defaultdict(list)
+
         for ts_ms, entry in data.items():
             try:
                 seconds = int(ts_ms) / 1000
             except (TypeError, ValueError):
                 continue
+
             row_date = datetime.datetime.fromtimestamp(
                 seconds, tz=datetime.timezone.utc
             ).strftime("%Y-%m-%d")
+
             if not (start_date <= row_date <= end_date):
                 continue
+
             if not isinstance(entry, dict):
                 continue
+
             value = Uniblock._to_float(entry.get(value_field))
+
             if value is None:
                 continue
+
             buckets[row_date].append(value)
 
         return [
@@ -176,8 +185,10 @@ class Uniblock(BaseProvider):
             },
         )
         data = body.get("data") if isinstance(body, dict) else None
+
         if not isinstance(data, dict):
             return []
+        
         return self._daily_average(data, config["value_field"], start_date, end_date)
 
     # -- solana json-rpc (snapshot) -----------------------------------------
@@ -187,16 +198,19 @@ class Uniblock(BaseProvider):
         resp = self._session.post(
             f"{self.base_url}/json-rpc",
             params={"chainId": self._CHAIN},
-            headers=self._headers(),
+            headers={"X-API-Key": self.api_key, "accept": "application/json"},
             json={"id": 1, "jsonrpc": "2.0", "method": method, "params": params},
             timeout=self._TIMEOUT,
         )
         resp.raise_for_status()
         payload = resp.json()
+
         if not isinstance(payload, dict):
             raise RuntimeError(f"Unexpected RPC response for {method}: {payload!r}")
+        
         if payload.get("error"):
             raise RuntimeError(f"Solana RPC {method} failed: {payload['error']}")
+        
         return payload.get("result")
 
     def _get_vote_accounts(self) -> Dict[str, Any]:
@@ -208,6 +222,7 @@ class Uniblock(BaseProvider):
         accounts = self._get_vote_accounts()
         if rpc_kind == "validator_count":
             return float(len(accounts.get("current", [])))
+        
         if rpc_kind == "total_stake":
             lamports = 0.0
             for group in ("current", "delinquent"):
@@ -216,6 +231,7 @@ class Uniblock(BaseProvider):
                     if stake is not None:
                         lamports += stake
             return lamports / self._LAMPORTS_PER_SOL
+        
         return None
 
     # -- BaseProvider interface ---------------------------------------------
@@ -230,6 +246,7 @@ class Uniblock(BaseProvider):
         SOL price supports historical backfill.
         """
         config = self.METRIC_MAP.get(metric)
+
         if config is None:
             available = ", ".join(self.METRIC_MAP)
             raise ValueError(f"Unknown metric '{metric}'. Available: {available}")
@@ -240,9 +257,11 @@ class Uniblock(BaseProvider):
         today = datetime.date.today().isoformat()
         if not (start_date <= today <= end_date):
             return []
+        
         value = self._rpc_value(config["rpc_kind"])
         if value is None:
             return []
+        
         return [{"date": today, "value": float(value)}]
 
     def get_metric(
@@ -255,8 +274,10 @@ class Uniblock(BaseProvider):
                 f"'{self._CHAIN}'."
             )
         rows = self.fetch_rows(metric, date, date)
+
         if not rows:
             return None
+        
         value = rows[0]["value"]
         parsed_date = datetime.date.fromisoformat(date)
 
