@@ -37,7 +37,7 @@ class Rwa(BaseProvider):
                         {
                             "operator": "equals",
                             "field": "measure_slug",
-                            "value": "circulating_market_value_dollar",
+                            "value": "total_supply_token",
                         },
                     ],
                 },

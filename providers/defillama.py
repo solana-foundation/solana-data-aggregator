@@ -110,7 +110,7 @@ class DefiLlama(BaseProvider):
         if config.get("coins_chart"):
             start_ts = int(
                 datetime.datetime.fromisoformat(start_date)
-                .replace(tzinfo=datetime.timezone.utc)
+                .replace(hour=12, tzinfo=datetime.timezone.utc)
                 .timestamp()
             )
             span = min(
@@ -118,7 +118,7 @@ class DefiLlama(BaseProvider):
                     datetime.date.fromisoformat(end_date)
                     - datetime.date.fromisoformat(start_date)
                 ).days
-                + 1,
+                + 2,
                 365,
             )
             raw = self._get(

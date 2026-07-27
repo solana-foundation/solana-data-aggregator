@@ -26,11 +26,8 @@ class Allium(BaseProvider):
             "sql": """
                 SELECT
                     date,
-                    SUM(circulating_supply * price) AS usd
-                FROM solana.stablecoins.supply_distribution_daily t1
-                LEFT JOIN solana.prices.token_prices_hourly t2
-                    ON t1.date = t2.timestamp
-                    AND t1.token_address = t2.token_mint
+                    SUM(total_supply_usd) AS usd
+                FROM solana.stablecoins.supply_distribution_daily
                 WHERE date >= DATE '{start_date}'
                   AND date < DATEADD('day', 1, DATE '{end_date}')
                 GROUP BY ALL

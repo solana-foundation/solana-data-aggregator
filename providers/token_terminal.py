@@ -39,10 +39,21 @@ class TokenTerminal(BaseProvider):
             "value_field": "active_addresses_daily",
         },
         "stablecoin_supply": {
-            "metric_id": "ecosystem_stablecoin_supply",
+            # Total stablecoin supply = native issuance + bridged-in supply.
+            # Token Terminal exposes these as two separate metric_ids; requesting
+            # both in one call and summing them yields the bridged-inclusive total.
+            "metric_id": "ecosystem_stablecoin_supply,ecosystem_bridged_stablecoin_supply",
             "date_field": "timestamp",
-            "value_field": "ecosystem_stablecoin_supply",
-            "methodology": "Circulating supply excludes issuer treasury and pre-minted, not-yet-issued balances.",
+            "value_field": [
+                "ecosystem_stablecoin_supply",
+                "ecosystem_bridged_stablecoin_supply",
+            ],
+            "methodology": (
+                "Total stablecoin supply on Solana = native issuance "
+                "(ecosystem_stablecoin_supply) + bridged-in supply "
+                "(ecosystem_bridged_stablecoin_supply). Circulating supply excludes "
+                "issuer treasury and pre-minted, not-yet-issued balances."
+            ),
         },
         "defi_dex_volume": {
             "metric_id": "ecosystem_dex_trading_volume",
@@ -93,6 +104,12 @@ class TokenTerminal(BaseProvider):
     ) -> List[Dict[str, Any]]:
         """Return normalized {"date": str, "value": float} records for the given range (both dates inclusive)."""
         config = self.METRIC_MAP[metric]
+        # A metric may map to one or more Token Terminal metric_ids. When several
+        # are provided (e.g. native + bridged stablecoin supply), their per-day
+        # values are summed into a single figure.
+        value_fields = config["value_field"]
+        if isinstance(value_fields, str):
+            value_fields = [value_fields]
         body = self._get(
             f"/projects/{self.PROJECT}/metrics",
             params={
@@ -108,10 +125,17 @@ class TokenTerminal(BaseProvider):
             row_date = str(row.get(config["date_field"], ""))[:10]
             if not row_date or not (start_date <= row_date <= end_date):
                 continue
-            value = row.get(config["value_field"])
-            if value is None:
+            # Sum the values that are present for this day. If one series has no
+            # value for a date (e.g. bridged supply on dates before any bridged
+            # stablecoins existed on the chain), the absent series is treated as
+            # zero and the day still reports the available total. Only days with
+            # no values at all for any requested metric are dropped.
+            present = [row.get(field) for field in value_fields]
+            present = [v for v in present if v is not None]
+            if not present:
                 continue
-            result.append({"date": row_date, "value": float(value)})
+            value = sum(float(v) for v in present)
+            result.append({"date": row_date, "value": value})
         return result
 
     def get_metric(

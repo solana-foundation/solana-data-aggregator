@@ -21,15 +21,21 @@ from providers.base import BaseProvider
 class Artemis(BaseProvider):
     """Fetch stablecoin metrics from the Artemis XYZ API."""
 
-    METRIC_MAP: Dict[str, str] = {
-        "stablecoin_supply": "STABLECOIN_SUPPLY",
-        "stablecoin_transfer_volume": "STABLECOIN_TRANSFER_VOLUME",
-        "stablecoin_transfer_count": "STABLECOIN_DAILY_TXNS",
-        "stablecoin_active_addresses": "STABLECOIN_DAU",
-        "overview_fee_payers": "DAU",
-        "overview_sol_price": "PRICE",
-        "overview_fees": "FEES_NATIVE",
-        "defi_dex_volume": "CHAIN_SPOT_VOLUME",
+    METRIC_MAP: Dict[str, Dict[str, Any]] = {
+        "stablecoin_supply": {"endpoint": "STABLECOIN_SUPPLY"},
+        "stablecoin_transfer_volume": {"endpoint": "STABLECOIN_TRANSFER_VOLUME"},
+        "stablecoin_transfer_count": {"endpoint": "STABLECOIN_DAILY_TXNS"},
+        "stablecoin_active_addresses": {"endpoint": "STABLECOIN_DAU"},
+        "overview_fee_payers": {
+            "endpoint": "DAU",
+            "methodology": (
+                "Distinct signers of successful transactions, not just fee "
+                "payers, capturing fee-sponsored users."
+            ),
+        },
+        "overview_sol_price": {"endpoint": "PRICE"},
+        "overview_fees": {"endpoint": "FEES_NATIVE"},
+        "defi_dex_volume": {"endpoint": "CHAIN_SPOT_VOLUME"},
     }
     BASE_URL = "https://data-svc.artemisxyz.com"
 
@@ -67,7 +73,7 @@ class Artemis(BaseProvider):
         self, metric: str, start_date: str, end_date: str, chain: str = "solana"
     ) -> List[Dict[str, Any]]:
         """Return normalized {"date": str, "value": Any} records for the given range (both dates inclusive)."""
-        endpoint = self.METRIC_MAP[metric]
+        endpoint = self.METRIC_MAP[metric]["endpoint"]
         body = self._get(
             endpoint,
             params={"symbols": chain, "startDate": start_date, "endDate": end_date},
