@@ -21,15 +21,15 @@ class Birdeye(BaseProvider):
             "endpoint": "/defi/history_price",
         },
         "stablecoin_supply": {
-            "endpoint": "/defi/v3/market-history",
+            "endpoint": "/market/v1/blockchain-metrics",
             "metric_field": "stable_coin_market_cap",
         },
         "defi_dex_volume": {
-            "endpoint": "/defi/v3/market-history",
+            "endpoint": "/market/v1/blockchain-metrics",
             "metric_field": "volume_usd",
         },
         "defi_dex_transactions": {
-            "endpoint": "/defi/v3/market-history",
+            "endpoint": "/market/v1/blockchain-metrics",
             "metric_field": "trade_count",
         },
     }
