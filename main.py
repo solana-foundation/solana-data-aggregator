@@ -35,6 +35,7 @@ from providers.token_terminal import TokenTerminal
 from providers.topledger import TopLedger
 from providers.uniblock import Uniblock
 from providers.validators_app import ValidatorsApp
+from providers.birdeye import Birdeye
 
 OUTPUT_DIR = Path(__file__).parent / "_output"
 LOOKBACK_DAYS = 7
@@ -53,6 +54,7 @@ PROVIDER_REGISTRY: List[tuple[str, Type[BaseProvider], Optional[str]]] = [
     ("topledger", TopLedger, "TOPLEDGER_API_KEY"),
     ("uniblock", Uniblock, "UNIBLOCK_API_KEY"),
     ("validators_app", ValidatorsApp, "VALIDATORS_APP_API_TOKEN"),
+    ("birdeye", Birdeye, "BIRDEYE_API_KEY"),
 ]
 
 
