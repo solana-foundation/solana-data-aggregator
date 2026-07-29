@@ -23,10 +23,12 @@ class Birdeye(BaseProvider):
         "stablecoin_supply": {
             "endpoint": "/market/v1/blockchain-metrics",
             "metric_field": "stable_coin_market_cap",
+            "methodology": "Total circulating supply, priced and aggregated across stablecoins.",
         },
         "defi_dex_volume": {
             "endpoint": "/market/v1/blockchain-metrics",
             "metric_field": "volume_usd",
+            "methodology": "Daily USD DEX trade value, sourced from on-chain swaps, exclude some wash trading.",
         },
         "defi_dex_transactions": {
             "endpoint": "/market/v1/blockchain-metrics",
