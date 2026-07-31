@@ -197,7 +197,7 @@ def test_constructor_reads_api_key_from_env(monkeypatch) -> None:
 # -- JSON-RPC snapshot metrics ------------------------------------------------
 
 # 2 current + 1 delinquent; stake in lamports.
-# current count -> 2; total stake -> (110 + 90 + 1) = 201 SOL.
+# current count -> 2; total stake -> (110 + 90) = 200 SOL, delinquent excluded.
 _VOTE_ACCOUNTS_RESPONSE = {
     "id": 1,
     "jsonrpc": "2.0",
@@ -213,7 +213,7 @@ _VOTE_ACCOUNTS_RESPONSE = {
 }
 
 
-def test_fetch_rows_total_stake() -> None:
+def test_fetch_rows_total_stake_excludes_delinquent() -> None:
     provider = _make_provider()
     with patch.object(
         provider._session,
@@ -222,7 +222,8 @@ def test_fetch_rows_total_stake() -> None:
     ):
         rows = provider.fetch_rows("network_total_stake", _PAST, _TODAY)
 
-    assert rows == [{"date": _TODAY, "value": pytest.approx(201.0)}]
+    # 110 + 90 SOL; the 1 SOL delinquent account is not counted.
+    assert rows == [{"date": _TODAY, "value": pytest.approx(200.0)}]
 
 
 def test_fetch_rows_validator_count_excludes_delinquent() -> None:
@@ -269,7 +270,7 @@ def test_get_metric_total_stake_returns_network_model() -> None:
 
     assert isinstance(result, Network)
     assert result.metric_type == NetworkMetricType.TOTAL_STAKE
-    assert result.value == pytest.approx(201.0)
+    assert result.value == pytest.approx(200.0)
 
 
 def test_post_rpc_raises_on_error() -> None:

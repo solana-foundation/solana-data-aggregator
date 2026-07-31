@@ -55,9 +55,9 @@ class Uniblock(BaseProvider):
             "kind": "rpc",
             "rpc_kind": "total_stake",
             "methodology": (
-                "Total activated stake across current and delinquent vote "
-                "accounts from Solana getVoteAccounts, converted from lamports "
-                "to SOL. Current-state snapshot."
+                "Total activated stake across current (non-delinquent) vote "
+                "accounts from Solana getVoteAccounts, excluding delinquent, "
+                "converted from lamports to SOL. Current-state snapshot."
             ),
             "methodology_url": "https://docs.uniblock.dev/api-reference/json-rpc/send-json-rpc-requests",
         },
@@ -225,11 +225,10 @@ class Uniblock(BaseProvider):
 
         if rpc_kind == "total_stake":
             lamports = 0.0
-            for group in ("current", "delinquent"):
-                for account in accounts.get(group, []):
-                    stake = self._to_float(account.get("activatedStake"))
-                    if stake is not None:
-                        lamports += stake
+            for account in accounts.get("current", []):
+                stake = self._to_float(account.get("activatedStake"))
+                if stake is not None:
+                    lamports += stake
             return lamports / self._LAMPORTS_PER_SOL
 
         return None
