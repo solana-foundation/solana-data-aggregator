@@ -39,6 +39,47 @@ class TokenTerminal(BaseProvider):
             "date_field": "timestamp",
             "value_field": "active_addresses_daily",
         },
+        "overview_non_vote_tx_count_success": {
+            "metric_id": "successful_non_vote_transaction_count",
+            "date_field": "timestamp",
+            "value_field": "successful_non_vote_transaction_count",
+            "methodology": (
+                "Non-vote transactions that executed without error, aggregated from "
+                "the per-block counts Solana records. Sums with the failed count to "
+                "the total non-vote transaction count."
+            ),
+        },
+        "overview_non_vote_tx_count_failed": {
+            "metric_id": "failed_non_vote_transaction_count",
+            "date_field": "timestamp",
+            "value_field": "failed_non_vote_transaction_count",
+            "methodology": (
+                "Non-vote transactions that reverted with an error. They were "
+                "included in a block and paid a fee, so this counts wasted execution "
+                "rather than dropped demand."
+            ),
+        },
+        "overview_slots": {
+            "metric_id": "slot_count",
+            "date_field": "timestamp",
+            "value_field": "slot_count",
+            "methodology": (
+                "Slots in which a leader produced a block. Skipped slots are "
+                "excluded, so the shortfall against the slot schedule is the leader "
+                "skip rate."
+            ),
+        },
+        "overview_compute_units": {
+            "metric_id": "compute_units_per_block",
+            "date_field": "timestamp",
+            "value_field": "compute_units_per_block",
+            "methodology": (
+                "Average compute units consumed per produced block. Both successful "
+                "and failed non-vote transactions count, since failed transactions "
+                "still consume compute. Blocks carrying no transactions remain in "
+                "the denominator because they still occupied a slot."
+            ),
+        },
         "stablecoin_supply": {
             # Total stablecoin supply = native issuance + bridged-in supply.
             # Token Terminal exposes these as two separate metric_ids; requesting
@@ -81,6 +122,10 @@ class TokenTerminal(BaseProvider):
         "overview_tx_count_vote": OverviewMetricType.TX_COUNT_VOTE,
         "overview_sol_price": OverviewMetricType.SOL_PRICE,
         "overview_fee_payers": OverviewMetricType.FEE_PAYERS,
+        "overview_non_vote_tx_count_success": OverviewMetricType.TX_COUNT_NON_VOTE_SUCCESS,
+        "overview_non_vote_tx_count_failed": OverviewMetricType.TX_COUNT_NON_VOTE_FAILED,
+        "overview_slots": OverviewMetricType.SLOTS,
+        "overview_compute_units": OverviewMetricType.COMPUTE_UNITS,
     }
 
     _STABLECOIN_METRIC_TYPE_MAP: Dict[str, StablecoinMetricType] = {
