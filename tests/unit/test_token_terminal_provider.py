@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from metrics.network import Network, NetworkMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
 from providers.token_terminal import TokenTerminal
 
@@ -62,3 +63,41 @@ def test_get_stablecoin_supply_tolerates_missing_bridged_value() -> None:
 
     assert result is sentinel_metric
     assert mock_factory.call_args.kwargs["value"] == 10_987_267_570.64
+
+
+def test_get_validator_count_returns_network_metric() -> None:
+    provider = TokenTerminal(api_key="test-token-terminal-key")
+    mock_response = [
+        {"timestamp": "2026-01-01T00:00:00.000Z", "number_of_validators": 683},
+    ]
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = mock_response
+    mock_resp.raise_for_status = MagicMock()
+    sentinel_metric = object()
+
+    with (
+        patch.object(provider._session, "get", return_value=mock_resp),
+        patch.object(
+            Network, "from_metric_type", return_value=sentinel_metric
+        ) as mock_factory,
+    ):
+        result = provider.get_metric("network_validator_count", "2026-01-01", "solana")
+
+    assert result is sentinel_metric
+    mock_factory.assert_called_once()
+    assert (
+        mock_factory.call_args.kwargs["metric_type"]
+        == NetworkMetricType.VALIDATOR_COUNT
+    )
+    assert mock_factory.call_args.kwargs["value"] == 683
+
+
+def test_every_supported_metric_has_a_metric_type() -> None:
+    """Each entry in METRIC_MAP must resolve to a typed metric model."""
+    mapped = (
+        set(TokenTerminal._OVERVIEW_METRIC_TYPE_MAP)
+        | set(TokenTerminal._STABLECOIN_METRIC_TYPE_MAP)
+        | set(TokenTerminal._DEFI_METRIC_TYPE_MAP)
+        | set(TokenTerminal._NETWORK_METRIC_TYPE_MAP)
+    )
+    assert set(TokenTerminal.METRIC_MAP) == mapped

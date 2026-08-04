@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from metrics.defi import Defi, DefiMetricType
+from metrics.network import Network, NetworkMetricType
 from metrics.overview import Overview, OverviewMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
 from providers.base import BaseProvider
@@ -61,6 +62,37 @@ class TokenTerminal(BaseProvider):
             "value_field": "ecosystem_dex_trading_volume",
             "methodology": "DEX trade volume varies by indexed venues, pricing, and filtering methodology.",
         },
+        "network_validator_count": {
+            "metric_id": "number_of_validators",
+            "date_field": "timestamp",
+            "value_field": "number_of_validators",
+            "methodology": (
+                "Validators are counted from Solana's native rewards system: an "
+                "address counts for a day if it received a voting reward on that "
+                "day, which only happens for validators taking part in consensus. "
+                "Validators that were delinquent for the whole day therefore drop "
+                "out of the count."
+            ),
+        },
+    }
+
+    _OVERVIEW_METRIC_TYPE_MAP: Dict[str, OverviewMetricType] = {
+        "overview_tx_count_total": OverviewMetricType.TX_COUNT_TOTAL,
+        "overview_tx_count_vote": OverviewMetricType.TX_COUNT_VOTE,
+        "overview_sol_price": OverviewMetricType.SOL_PRICE,
+        "overview_fee_payers": OverviewMetricType.FEE_PAYERS,
+    }
+
+    _STABLECOIN_METRIC_TYPE_MAP: Dict[str, StablecoinMetricType] = {
+        "stablecoin_supply": StablecoinMetricType.SUPPLY,
+    }
+
+    _DEFI_METRIC_TYPE_MAP: Dict[str, DefiMetricType] = {
+        "defi_dex_volume": DefiMetricType.DEX_VOLUME,
+    }
+
+    _NETWORK_METRIC_TYPE_MAP: Dict[str, NetworkMetricType] = {
+        "network_validator_count": NetworkMetricType.VALIDATOR_COUNT,
     }
 
     BASE_URL = "https://api.tokenterminal.com/v2"
@@ -140,43 +172,36 @@ class TokenTerminal(BaseProvider):
 
     def get_metric(
         self, metric: str, date: str, chain: str
-    ) -> Stablecoin | Overview | Defi | None:
+    ) -> Stablecoin | Overview | Defi | Network | None:
         """Fetch one metric value and return it as a typed metric model."""
         rows = self.fetch_rows(metric, date, date)
         if not rows:
             return None
-
         value = rows[0]["value"]
         parsed_date = datetime.date.fromisoformat(date)
 
-        overview_metric_map: Dict[str, OverviewMetricType] = {
-            "overview_tx_count_total": OverviewMetricType.TX_COUNT_TOTAL,
-            "overview_tx_count_vote": OverviewMetricType.TX_COUNT_VOTE,
-            "overview_sol_price": OverviewMetricType.SOL_PRICE,
-            "overview_fee_payers": OverviewMetricType.FEE_PAYERS,
-        }
-        if metric in overview_metric_map:
+        overview_type = self._OVERVIEW_METRIC_TYPE_MAP.get(metric)
+        if overview_type is not None:
             return Overview.from_metric_type(
-                metric_type=overview_metric_map[metric],
-                date=parsed_date,
-                value=value,
+                metric_type=overview_type, date=parsed_date, value=value
             )
 
-        defi_metric_map: Dict[str, DefiMetricType] = {
-            "defi_dex_volume": DefiMetricType.DEX_VOLUME,
-        }
-        if metric in defi_metric_map:
+        stablecoin_type = self._STABLECOIN_METRIC_TYPE_MAP.get(metric)
+        if stablecoin_type is not None:
+            return Stablecoin.from_metric_type(
+                metric_type=stablecoin_type, date=parsed_date, value=value
+            )
+
+        defi_type = self._DEFI_METRIC_TYPE_MAP.get(metric)
+        if defi_type is not None:
             return Defi.from_metric_type(
-                metric_type=defi_metric_map[metric],
-                date=parsed_date,
-                value=value,
+                metric_type=defi_type, date=parsed_date, value=value
             )
 
-        stablecoin_metric_map: Dict[str, StablecoinMetricType] = {
-            "stablecoin_supply": StablecoinMetricType.SUPPLY,
-        }
-        return Stablecoin.from_metric_type(
-            metric_type=stablecoin_metric_map[metric],
-            date=parsed_date,
-            value=value,
-        )
+        network_type = self._NETWORK_METRIC_TYPE_MAP.get(metric)
+        if network_type is not None:
+            return Network.from_metric_type(
+                metric_type=network_type, date=parsed_date, value=value
+            )
+
+        return None
