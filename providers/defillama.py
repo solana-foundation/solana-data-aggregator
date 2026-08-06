@@ -10,6 +10,7 @@ import requests
 
 from metrics.defi import Defi, DefiMetricType
 from metrics.overview import Overview, OverviewMetricType
+from metrics.prediction_market import PredictionMarket, PredictionMarketMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
 from providers.base import BaseProvider
 
@@ -53,9 +54,17 @@ class DefiLlama(BaseProvider):
             },
             "fees_overview": True,
         },
+        "prediction_market_tvl": {
+            "endpoint": "/api/protocol/{slug}",
+            "prediction_market_field": "tvl",
+            "methodology": "Sum of Solana TVL across protocols categorized as Prediction Market.",
+        },
     }
 
     BASE_URL = "https://pro-api.llama.fi"
+    PROTOCOLS_ENDPOINT = "/api/protocols"
+    PREDICTION_MARKET_CATEGORY = "Prediction Market"
+    SOLANA_CHAIN = "Solana"
 
     def __init__(self, *, api_key: Optional[str] = None) -> None:
         resolved_api_key = api_key or os.environ.get("DEFILLAMA_API_KEY") or ""
@@ -85,6 +94,38 @@ class DefiLlama(BaseProvider):
             .isoformat()
         )
 
+    def _prediction_market_tvl(
+        self, detail_endpoint: str, start_date: str, end_date: str
+    ) -> Dict[str, float]:
+        """Sum daily Solana TVL across the Prediction Market category."""
+        listing = self._get(f"{self.base_url}{self.PROTOCOLS_ENDPOINT}")
+        slugs = [
+            protocol["slug"]
+            for protocol in listing
+            if protocol.get("slug")
+            and protocol.get("category") == self.PREDICTION_MARKET_CATEGORY
+            and self.SOLANA_CHAIN in (protocol.get("chains") or [])
+        ]
+
+        totals: Dict[str, float] = {}
+        for slug in slugs:
+            raw = self._get(f"{self.base_url}{detail_endpoint.format(slug=slug)}")
+            series = raw.get("chainTvls", {}).get(self.SOLANA_CHAIN, {}).get("tvl", [])
+            by_date: Dict[str, float] = {}
+            for entry in series:
+                row_date = self._ts_to_date(int(entry.get("date", 0)))
+                if not (start_date <= row_date <= end_date):
+                    continue
+                value = entry.get("totalLiquidityUSD")
+                if value is None:
+                    continue
+                # Later timestamps win: the intraday point supersedes midnight.
+                by_date[row_date] = float(value)
+            for row_date, value in by_date.items():
+                totals[row_date] = totals.get(row_date, 0.0) + value
+
+        return totals
+
     def fetch_rows(
         self, metric: str, start_date: str, end_date: str, **kwargs: Any
     ) -> List[Dict[str, Any]]:
@@ -95,6 +136,15 @@ class DefiLlama(BaseProvider):
             raise ValueError(f"Unknown metric '{metric}'. Available: {available}")
 
         result = []
+
+        if config.get("prediction_market_field"):
+            totals = self._prediction_market_tvl(
+                config["endpoint"], start_date, end_date
+            )
+            return [
+                {"date": row_date, "value": totals[row_date]}
+                for row_date in sorted(totals)
+            ]
 
         if config.get("count_solana_stablecoins"):
             raw = self._get(
@@ -191,7 +241,7 @@ class DefiLlama(BaseProvider):
 
     def get_metric(
         self, metric: str, date: str, chain: str
-    ) -> Defi | Overview | Stablecoin | None:
+    ) -> Defi | Overview | PredictionMarket | Stablecoin | None:
         """Fetch one metric value and return it as a typed metric model."""
         rows = self.fetch_rows(metric, date, date)
         if not rows:
@@ -230,6 +280,13 @@ class DefiLlama(BaseProvider):
         if metric in stablecoin_metric_map:
             return Stablecoin.from_metric_type(
                 metric_type=stablecoin_metric_map[metric],
+                date=parsed_date,
+                value=value,
+            )
+
+        if metric == "prediction_market_tvl":
+            return PredictionMarket.from_metric_type(
+                metric_type=PredictionMarketMetricType.TVL,
                 date=parsed_date,
                 value=value,
             )

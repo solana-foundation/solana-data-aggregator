@@ -11,8 +11,181 @@ import requests
 
 from metrics.defi import Defi, DefiMetricType
 from metrics.overview import Overview, OverviewMetricType
+from metrics.prediction_market import PredictionMarket, PredictionMarketMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
 from providers.base import BaseProvider
+
+# Solana prediction market programs counted by the prediction market metrics.
+# IDs come from each protocol's DefiLlama TVL adapter
+# (github.com/DefiLlama/DefiLlama-Adapters) or volume adapter
+# (github.com/DefiLlama/dimension-adapters), except Trepa, which DefiLlama
+# does not list: its mainnet program is verified from the pool accounts its
+# public API reports. Pascal matches trades off-chain, and PRDT and DropCopy
+# publish no program IDs, so none of them are counted here.
+PREDICTION_MARKET_PROGRAMS: Dict[str, List[str]] = {
+    "world.xyz": ["prediCtPZCttYMvm2W3PtxmMxLmT1dtN7riU6Cxh6tM"],
+    "Hedgehog Markets": [
+        "D8vMVKonxkbBtAXAxBwPPWyTfon8337ARJmHvwtsF98G",
+        "P2PototC41acvjMc9cvAoRjFjtaRD5Keo9PvNJfRwf3",
+        "P2PzLraW8YF87BxqZTZ5kgrfvzcrKGPnqUBNhqmcV9B",
+        "PLYaNRbQs9GWyVQdcLrzPvvZu7NH4W2sneyHcEimLr7",
+        "PARrVs6F5egaNuz8g6pKJyU4ze3eX5xGZCFb3GLiVvu",
+    ],
+    "Divvy.Bet": ["dvyFwAPniptQNb1ey4eM12L8iLHrzdiDsPPDndd6xAR"],
+    "Bubblegum": ["71ywu6cFWETLyiz1KcuMwq2wfguYfra7b1bCPinVqKm3"],
+    "Rush Sports": ["CAzPCZuaji4ycz4KWtmBirvNeXp3ULCqunJgSMFZX5ar"],
+    "Prophet.fun": ["ProPh6ruVL41JR3XXPuy6hN6TPH1ERqpWkZ9dp9YSEe"],
+    # Trepa shut down on 2026-08-12 and runs no rounds after that date. It is
+    # kept here so backfills of earlier days stay complete; from 2026-08-13 its
+    # program has no activity, so it contributes nothing to any of the metrics.
+    "Trepa": ["TrP8DegtRkKAyoUuD9ZzrSWdYvx829ZgXkxK21rvm6v"],
+    "Worm": [
+        "WrgN8d3Xe7qTzZw59kiXaf3fAagHHWg78Mbhkn2dTPD",
+        "SormXyTMQ69ux8yhn9CBQ8v7UuqepefMHbM5TcNDtkf",
+    ],
+}
+
+# Protocols that sponsor gas for their users. Every transaction is signed by a
+# relayer wallet, so counting signers reports a handful of wallets instead of
+# the user base. Users are counted from stake token transfer owners instead.
+# Trepa is listed for the days it ran; see the note on its program ID above.
+PREDICTION_MARKET_RELAYER_PROTOCOLS = {"Trepa", "Worm"}
+
+# Assets users stake on the protocols above: USDC, USDT, wSOL and world.xyz's
+# CASH. Native SOL is excluded because its transfers also cover account
+# creation and rent, which would count wallets that never placed a prediction.
+PREDICTION_MARKET_STAKE_TOKENS = [
+    "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+    "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+    "So11111111111111111111111111111111111111112",
+    "CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH",
+]
+
+
+# Volume decoders, one per protocol, because each program records stake sizes
+# in its own instruction layout. Protocols without a decoder contribute no
+# volume: Divvy.Bet's on-chain IDL no longer matches its deployed program, and
+# the rest either publish no IDL or have had no on-chain activity to measure.
+PREDICTION_MARKET_VOLUME_DECODERS = {
+    # world.xyz routes trades through the DFlow aggregator, which emits an
+    # Anchor swap event carrying the CASH leg of the trade. Same decode as
+    # DefiLlama's world.xyz adapter, and it reproduces their published volume.
+    "world.xyz": """
+                    SELECT
+                        ic.block_date,
+                        CASE
+                            WHEN bytearray_substring(ic.data, 49, 32) = from_base58('CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH')
+                                THEN CAST(bytearray_to_uint256(bytearray_reverse(bytearray_substring(ic.data, 81, 8))) AS DOUBLE) / 1e6
+                            WHEN bytearray_substring(ic.data, 89, 32) = from_base58('CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH')
+                                THEN CAST(bytearray_to_uint256(bytearray_reverse(bytearray_substring(ic.data, 121, 8))) AS DOUBLE) / 1e6
+                            ELSE 0
+                        END AS volume_usd
+                    FROM solana.instruction_calls ic
+                    JOIN (
+                        SELECT DISTINCT tx_id
+                        FROM solana.instruction_calls
+                        WHERE executing_account = 'prediCtPZCttYMvm2W3PtxmMxLmT1dtN7riU6Cxh6tM'
+                          AND tx_success
+                          AND block_date BETWEEN DATE '{start_date}' AND DATE '{end_date}'
+                    ) w ON w.tx_id = ic.tx_id
+                    WHERE ic.executing_account = 'DF1ow4tspfHX9JwWJsAb9epbkA8hmpSEAtxXy1V27QBH'
+                      AND ic.tx_success
+                      AND ic.block_date BETWEEN DATE '{start_date}' AND DATE '{end_date}'
+                      AND bytearray_substring(ic.data, 1, 8) = 0xe445a52e51cb9a1d
+                      AND bytearray_substring(ic.data, 9, 8) = 0x40c6cde8260871e2""",
+    # Trepa's predict instruction carries the USDC stake as a little-endian
+    # u64 immediately after the 8 byte Anchor discriminator. Retained for
+    # backfills of days before its 2026-08-12 shutdown.
+    "Trepa": """
+                    SELECT
+                        block_date,
+                        CAST(bytearray_to_uint256(bytearray_reverse(bytearray_substring(data, 9, 8))) AS DOUBLE) / 1e6 AS volume_usd
+                    FROM solana.instruction_calls
+                    WHERE executing_account = 'TrP8DegtRkKAyoUuD9ZzrSWdYvx829ZgXkxK21rvm6v'
+                      AND tx_success
+                      AND block_date BETWEEN DATE '{start_date}' AND DATE '{end_date}'
+                      AND bytearray_substring(data, 1, 8) = 0xFE7270F425312080""",
+    # Worm records the collateral staked on a position: at byte 17 for its
+    # main program (which also carries leverage at byte 9) and at byte 9 for
+    # its creator-markets program. Same decode as DefiLlama's Worm adapter.
+    "Worm": """
+                    SELECT
+                        block_date,
+                        CASE
+                            WHEN executing_account = 'SormXyTMQ69ux8yhn9CBQ8v7UuqepefMHbM5TcNDtkf'
+                                THEN CAST(bytearray_to_uint256(bytearray_reverse(bytearray_substring(data, 9, 8))) AS DOUBLE) / 1e6
+                            ELSE CAST(bytearray_to_uint256(bytearray_reverse(bytearray_substring(data, 17, 8))) AS DOUBLE) / 1e6
+                        END AS volume_usd
+                    FROM solana.instruction_calls
+                    WHERE tx_success
+                      AND block_date BETWEEN DATE '{start_date}' AND DATE '{end_date}'
+                      AND (
+                        (
+                            executing_account = 'WrgN8d3Xe7qTzZw59kiXaf3fAagHHWg78Mbhkn2dTPD'
+                            AND length(data) = 25
+                            AND bytearray_substring(data, 1, 8) = 0x87802f4d0f98f031
+                            AND bytearray_to_uint256(bytearray_reverse(bytearray_substring(data, 9, 8))) BETWEEN 100 AND 1000
+                        )
+                        OR (
+                            executing_account = 'SormXyTMQ69ux8yhn9CBQ8v7UuqepefMHbM5TcNDtkf'
+                            AND length(data) = 16
+                            AND bytearray_substring(data, 1, 8) = 0x33c29baf6d82606a
+                        )
+                      )""",
+}
+
+
+def _sql_list(values, indent: int = 20) -> str:
+    """Render values as a quoted, indented SQL IN-list."""
+    separator = ",\n" + " " * indent
+    return separator.join(f"'{value}'" for value in values)
+
+
+def _join_names(names) -> str:
+    """Join names for prose: 'A', 'A and B', 'A, B and C'."""
+    names = list(names)
+    if len(names) < 3:
+        return " and ".join(names)
+    return ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def _program_ids(protocols) -> List[str]:
+    return [
+        program_id
+        for protocol in protocols
+        for program_id in PREDICTION_MARKET_PROGRAMS[protocol]
+    ]
+
+
+_SIGNER_PROTOCOLS = [
+    protocol
+    for protocol in PREDICTION_MARKET_PROGRAMS
+    if protocol not in PREDICTION_MARKET_RELAYER_PROTOCOLS
+]
+_RELAYER_PROTOCOLS = [
+    protocol
+    for protocol in PREDICTION_MARKET_PROGRAMS
+    if protocol in PREDICTION_MARKET_RELAYER_PROTOCOLS
+]
+
+_PREDICTION_MARKET_PROGRAM_IDS = _sql_list(
+    _program_ids(PREDICTION_MARKET_PROGRAMS), indent=20
+)
+_SIGNER_PROGRAM_IDS = _sql_list(_program_ids(_SIGNER_PROTOCOLS), indent=24)
+_RELAYER_PROGRAM_IDS = _sql_list(_program_ids(_RELAYER_PROTOCOLS), indent=28)
+_STAKE_TOKEN_IDS = _sql_list(PREDICTION_MARKET_STAKE_TOKENS, indent=24)
+
+_PROTOCOL_CASE_SQL = "\n".join(
+    f"                            WHEN executing_account IN ({_sql_list(ids, 32)}) THEN '{protocol}'"
+    for protocol, ids in PREDICTION_MARKET_PROGRAMS.items()
+)
+
+_PREDICTION_MARKET_PROTOCOLS = ", ".join(PREDICTION_MARKET_PROGRAMS)
+_PREDICTION_MARKET_RELAYERS = _join_names(_RELAYER_PROTOCOLS)
+_VOLUME_PROTOCOLS = ", ".join(PREDICTION_MARKET_VOLUME_DECODERS)
+_VOLUME_DECODER_SQL = "\n\n                    UNION ALL\n".join(
+    PREDICTION_MARKET_VOLUME_DECODERS.values()
+)
 
 
 class Dune(BaseProvider):
@@ -291,6 +464,108 @@ class Dune(BaseProvider):
                 ORDER BY block_date
             """,
         },
+        "prediction_market_transactions": {
+            "date_field": "block_date",
+            "value_field": "pm_transactions",
+            "timeout": 3600,
+            "methodology": f"Distinct successful transactions calling Solana prediction market programs ({_PREDICTION_MARKET_PROTOCOLS}).",
+            "sql": f"""
+                SELECT
+                    block_date,
+                    COUNT(DISTINCT tx_id) AS pm_transactions
+                FROM solana.instruction_calls
+                WHERE executing_account IN (
+                    {_PREDICTION_MARKET_PROGRAM_IDS}
+                )
+                  AND tx_success
+                  AND block_date BETWEEN DATE '{{start_date}}' AND DATE '{{end_date}}'
+                GROUP BY block_date
+                ORDER BY block_date ASC
+            """,
+        },
+        "prediction_market_count": {
+            "date_field": "block_date",
+            "value_field": "pm_count",
+            "timeout": 3600,
+            "methodology": f"Solana prediction market protocols with on-chain activity on the day ({_PREDICTION_MARKET_PROTOCOLS}). Protocols holding collateral but processing no transactions are not counted.",
+            "sql": f"""
+                SELECT
+                    block_date,
+                    COUNT(DISTINCT protocol) AS pm_count
+                FROM (
+                    SELECT
+                        block_date,
+                        CASE
+{_PROTOCOL_CASE_SQL}
+                        END AS protocol
+                    FROM solana.instruction_calls
+                    WHERE executing_account IN (
+                            {_PREDICTION_MARKET_PROGRAM_IDS}
+                        )
+                      AND tx_success
+                      AND block_date BETWEEN DATE '{{start_date}}' AND DATE '{{end_date}}'
+                ) protocols
+                GROUP BY block_date
+                ORDER BY block_date ASC
+            """,
+        },
+        "prediction_market_volume": {
+            "date_field": "block_date",
+            "value_field": "pm_volume_usd",
+            "timeout": 3600,
+            "methodology": f"Trade size decoded from the on-chain instruction data of each Solana prediction market program with a known layout ({_VOLUME_PROTOCOLS}). Protocols whose layout is not published are not counted.",
+            "sql": f"""
+                SELECT
+                    block_date,
+                    SUM(volume_usd) AS pm_volume_usd
+                FROM (
+{_VOLUME_DECODER_SQL}
+                ) trades
+                GROUP BY block_date
+                ORDER BY block_date ASC
+            """,
+        },
+        "prediction_market_users": {
+            "date_field": "block_date",
+            "value_field": "pm_users",
+            "timeout": 3600,
+            "methodology": f"Unique wallets using Solana prediction market programs ({_PREDICTION_MARKET_PROTOCOLS}), counted as transaction signers. On {_PREDICTION_MARKET_RELAYERS}, which sponsor gas and sign through relayer wallets, wallets are counted as the owners of the stake tokens moved instead.",
+            "sql": f"""
+                SELECT
+                    block_date,
+                    COUNT(DISTINCT wallet) AS pm_users
+                FROM (
+                    SELECT block_date, tx_signer AS wallet
+                    FROM solana.instruction_calls
+                    WHERE executing_account IN (
+                            {_SIGNER_PROGRAM_IDS}
+                        )
+                      AND tx_success
+                      AND block_date BETWEEN DATE '{{start_date}}' AND DATE '{{end_date}}'
+
+                    UNION
+
+                    SELECT t.block_date, t.from_owner AS wallet
+                    FROM tokens_solana.transfers t
+                    JOIN (
+                        SELECT DISTINCT tx_id
+                        FROM solana.instruction_calls
+                        WHERE executing_account IN (
+                                {_RELAYER_PROGRAM_IDS}
+                            )
+                          AND tx_success
+                          AND block_date BETWEEN DATE '{{start_date}}' AND DATE '{{end_date}}'
+                    ) r ON t.tx_id = r.tx_id
+                    WHERE t.block_date BETWEEN DATE '{{start_date}}' AND DATE '{{end_date}}'
+                      AND t.from_owner IS NOT NULL
+                      AND t.token_mint_address IN (
+                            {_STAKE_TOKEN_IDS}
+                        )
+                ) wallets
+                GROUP BY block_date
+                ORDER BY block_date ASC
+            """,
+        },
     }
 
     BASE_URL = "https://api.dune.com/api/v1"
@@ -392,7 +667,7 @@ class Dune(BaseProvider):
 
     def get_metric(
         self, metric: str, date: str, chain: str
-    ) -> Stablecoin | Overview | Defi | None:
+    ) -> Stablecoin | Overview | Defi | PredictionMarket | None:
         """Fetch one metric value and return it as a typed metric model."""
         rows = self.fetch_rows(metric, date, date)
         if not rows:
@@ -428,6 +703,19 @@ class Dune(BaseProvider):
         if metric in defi_metric_map:
             return Defi.from_metric_type(
                 metric_type=defi_metric_map[metric],
+                date=parsed_date,
+                value=value,
+            )
+
+        prediction_market_metric_map = {
+            "prediction_market_transactions": PredictionMarketMetricType.TRANSACTIONS,
+            "prediction_market_count": PredictionMarketMetricType.COUNT,
+            "prediction_market_volume": PredictionMarketMetricType.VOLUME,
+            "prediction_market_users": PredictionMarketMetricType.USERS,
+        }
+        if metric in prediction_market_metric_map:
+            return PredictionMarket.from_metric_type(
+                metric_type=prediction_market_metric_map[metric],
                 date=parsed_date,
                 value=value,
             )
