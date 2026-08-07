@@ -100,6 +100,14 @@ class Blockworks(BaseProvider):
             "date_field": "block_date",
             "value_field": "avg_total_cu_per_block",
         },
+        "overview_app_revenue": {
+            "endpoint": "/metrics/app-revenue-total-usd",
+            "params": {"project": "solana"},
+            "use_date_params": True,
+            "data_path": ["solana"],
+            "date_field": "date",
+            "value_field": "value",
+        },
     }
 
     BASE_URL = "https://api.blockworks.com/v1"
@@ -263,6 +271,7 @@ class Blockworks(BaseProvider):
             "overview_non_vote_tx_count_failed": OverviewMetricType.TX_COUNT_NON_VOTE_FAILED,
             "overview_compute_units": OverviewMetricType.COMPUTE_UNITS,
             "overview_tx_count_total": OverviewMetricType.TX_COUNT_TOTAL,
+            "overview_app_revenue": OverviewMetricType.APP_REVENUE,
         }
         if metric in overview_metric_map:
             return Overview.from_metric_type(
