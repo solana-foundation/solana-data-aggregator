@@ -22,6 +22,7 @@ class OverviewMetricType(str, Enum):
     TX_COUNT_NON_VOTE_SUCCESS = "non_vote_tx_count_success"
     TX_COUNT_NON_VOTE_FAILED = "non_vote_tx_count_failed"
     COMPUTE_UNITS = "compute_units"
+    APP_REVENUE = "app_revenue"
 
 
 _METRIC_METADATA: dict[OverviewMetricType, dict[str, str]] = {
@@ -69,6 +70,11 @@ _METRIC_METADATA: dict[OverviewMetricType, dict[str, str]] = {
         "name": "Compute Units",
         "unit": "Count",
         "description": "Average compute units per block daily on Solana",
+    },
+    OverviewMetricType.APP_REVENUE: {
+        "name": "Application Revenue",
+        "unit": "USD",
+        "description": "Daily application revenue generated on Solana, denominated in USD (excludes L1 transaction fees).",
     },
 }
 
