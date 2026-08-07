@@ -44,6 +44,15 @@ class DefiLlama(BaseProvider):
             "endpoint": "/coins/chart/coingecko:solana",
             "coins_chart": True,
         },
+        "overview_app_revenue": {
+            "endpoint": "/api/overview/fees/solana",
+            "params": {
+                "excludeTotalDataChart": "false",
+                "excludeTotalDataChartBreakdown": "true",
+                "dataType": "dailyAppRevenue",
+            },
+            "fees_overview": True,
+        },
     }
 
     BASE_URL = "https://pro-api.llama.fi"
@@ -133,6 +142,18 @@ class DefiLlama(BaseProvider):
                 result.append({"date": row_date, "value": float(entry["price"])})
             return result
 
+        if config.get("fees_overview"):
+            raw = self._get(
+                f"{self.base_url}{config['endpoint']}",
+                params=config.get("params"),
+            )
+            for ts, value in raw.get("totalDataChart", []):
+                row_date = self._ts_to_date(int(ts))
+                if not (start_date <= row_date <= end_date):
+                    continue
+                result.append({"date": row_date, "value": float(value)})
+            return result
+
         raw = self._get(
             f"{self.base_url}{config['endpoint']}",
             params=config.get("params"),
@@ -181,6 +202,7 @@ class DefiLlama(BaseProvider):
 
         overview_metric_map = {
             "overview_sol_price": OverviewMetricType.SOL_PRICE,
+            "overview_app_revenue": OverviewMetricType.APP_REVENUE,
         }
         if metric in overview_metric_map:
             return Overview.from_metric_type(
