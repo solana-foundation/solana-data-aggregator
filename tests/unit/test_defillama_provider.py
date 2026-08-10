@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import datetime
 from unittest.mock import MagicMock, patch
 
+from metrics.prediction_market import PredictionMarket, PredictionMarketMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
 from providers.defillama import DefiLlama
 
@@ -72,3 +74,72 @@ def test_fetch_rows_raises_on_unknown_metric() -> None:
         assert False, "Expected ValueError"
     except ValueError as exc:
         assert "nonexistent_metric" in str(exc)
+
+
+_MOCK_PM_PROTOCOLS = [
+    {"slug": "alpha-markets", "category": "Prediction Market", "chains": ["Solana"]},
+    {
+        "slug": "beta-bets",
+        "category": "Prediction Market",
+        "chains": ["Ethereum", "Solana"],
+    },
+    {"slug": "gamma-dex", "category": "Dexes", "chains": ["Solana"]},
+    {"slug": "delta-markets", "category": "Prediction Market", "chains": ["Ethereum"]},
+]
+_MOCK_PM_ALPHA = {
+    "chainTvls": {
+        "Solana": {
+            "tvl": [
+                {"date": 1767139200, "totalLiquidityUSD": 999.0},  # 2025-12-31
+                {"date": 1767225600, "totalLiquidityUSD": 100.0},  # 2026-01-01
+                {"date": 1767312000, "totalLiquidityUSD": 120.0},  # 2026-01-02 00:00
+                {"date": 1767355200, "totalLiquidityUSD": 150.0},  # 2026-01-02 12:00
+            ]
+        }
+    }
+}
+_MOCK_PM_BETA = {
+    "chainTvls": {
+        "Solana": {
+            "tvl": [
+                {"date": 1767225600, "totalLiquidityUSD": 50.0},  # 2026-01-01
+                {"date": 1767312000, "totalLiquidityUSD": 0.0},  # 2026-01-02
+            ]
+        }
+    }
+}
+
+
+def _make_pm_session_mock() -> MagicMock:
+    """One listing call, then one detail call per prediction market slug."""
+    return MagicMock(
+        side_effect=[
+            _make_mock_resp(_MOCK_PM_PROTOCOLS),
+            _make_mock_resp(_MOCK_PM_ALPHA),
+            _make_mock_resp(_MOCK_PM_BETA),
+        ]
+    )
+
+
+def test_fetch_rows_prediction_market_tvl_sums_solana_protocols() -> None:
+    provider = DefiLlama()
+
+    with patch.object(provider._session, "get", _make_pm_session_mock()):
+        rows = provider.fetch_rows("prediction_market_tvl", "2026-01-01", "2026-01-02")
+
+    assert rows == [
+        {"date": "2026-01-01", "value": 150.0},
+        {"date": "2026-01-02", "value": 150.0},
+    ]
+
+
+def test_get_metric_prediction_market_tvl_returns_typed_metric() -> None:
+    provider = DefiLlama()
+
+    with patch.object(provider._session, "get", _make_pm_session_mock()):
+        result = provider.get_metric("prediction_market_tvl", "2026-01-01", "solana")
+
+    assert isinstance(result, PredictionMarket)
+    assert result.metric_type == PredictionMarketMetricType.TVL
+    assert result.value == 150.0
+    assert result.date == datetime.date(2026, 1, 1)
