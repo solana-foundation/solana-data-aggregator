@@ -184,3 +184,53 @@ def test_get_metric_returns_none_for_mapped_but_untyped_metric() -> None:
             provider._session, "get", return_value=_make_mock_resp(_NETWORKS_RAW)
         ):
             assert provider.get_metric("unmapped_metric", _TODAY, "solana") is None
+
+
+def test_no_auth_header_without_a_key() -> None:
+    provider = DexPaprika()
+    assert provider._headers() == {}
+
+
+def test_key_is_sent_bare_with_no_bearer_prefix() -> None:
+    # A scheme prefix is not stripped upstream, so "Bearer <key>" fails the
+    # checksum and 401s exactly like a wrong key.
+    provider = DexPaprika(api_key="api_TESTKEY")
+    assert provider._headers() == {"Authorization": "api_TESTKEY"}
+
+
+def test_key_is_read_from_the_environment(monkeypatch) -> None:
+    monkeypatch.setenv("DEXPAPRIKA_API_KEY", "api_FROMENV")
+    assert DexPaprika()._headers() == {"Authorization": "api_FROMENV"}
+
+
+def test_explicit_key_beats_the_environment(monkeypatch) -> None:
+    monkeypatch.setenv("DEXPAPRIKA_API_KEY", "api_FROMENV")
+    assert (
+        DexPaprika(api_key="api_EXPLICIT")._headers()["Authorization"] == "api_EXPLICIT"
+    )
+
+
+def test_networks_is_fetched_once_for_both_metrics() -> None:
+    # volume and transactions both read /networks. run_provider calls fetch_rows
+    # once per metric on the same instance, so this used to be two requests and
+    # 72 of the 82 records a full run costs.
+    provider = DexPaprika()
+    today = datetime.date.today().isoformat()
+    with patch.object(
+        provider._session, "get", return_value=_make_mock_resp(_NETWORKS_RAW)
+    ) as mock_get:
+        provider.fetch_rows("defi_dex_volume", today, today)
+        provider.fetch_rows("defi_dex_transactions", today, today)
+    assert mock_get.call_count == 1
+
+
+def test_networks_cache_expires() -> None:
+    provider = DexPaprika()
+    today = datetime.date.today().isoformat()
+    with patch.object(
+        provider._session, "get", return_value=_make_mock_resp(_NETWORKS_RAW)
+    ) as mock_get:
+        provider.fetch_rows("defi_dex_volume", today, today)
+        provider._networks_cached_at -= provider._NETWORKS_TTL + 1
+        provider.fetch_rows("defi_dex_volume", today, today)
+    assert mock_get.call_count == 2
