@@ -3,18 +3,19 @@
 Goldsky Turbo Pipelines (https://docs.goldsky.com/turbo-pipelines/sources/solana)
 stream curated Solana datasets into a database sink rather than exposing a hosted
 query API. This provider queries a ClickHouse sink populated by a Turbo pipeline
-from the following datasets:
+from the ``solana.dex_swaps`` dataset, landing as ``community.solana_dex_swaps``.
 
-- ``solana.blocks``     -> ``solana_blocks`` table
-- ``solana.transactions`` -> ``solana_transactions`` table
-- ``solana.dex_swaps``  -> ``solana_dex_swaps`` table
+``block_timestamp`` is a Unix timestamp in seconds, so the daily bucket is derived
+as ``toDate(toDateTime(block_timestamp))``. Every metric counts only live, successful
+swaps (``is_deleted = 0 AND status = 1``): ``is_deleted`` is a CDC soft-delete marker,
+and ``status = 0`` rows are failed swap attempts, which other providers exclude too.
 
 Queries run over the ClickHouse HTTP interface, configured via:
 
 - ``GOLDSKY_CLICKHOUSE_URL``      (required, e.g. ``https://host:8443``)
 - ``GOLDSKY_CLICKHOUSE_USER``     (default ``default``)
 - ``GOLDSKY_CLICKHOUSE_PASSWORD`` (default empty)
-- ``GOLDSKY_CLICKHOUSE_DATABASE`` (default ``default``)
+- ``GOLDSKY_CLICKHOUSE_DATABASE`` (default ``community``)
 """
 
 from __future__ import annotations
@@ -26,10 +27,8 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from metrics.defi import Defi, DefiMetricType
-from metrics.overview import Overview, OverviewMetricType
 from providers.base import BaseProvider
 
-SOLANA_DOCS_URL = "https://docs.goldsky.com/turbo-pipelines/sources/solana"
 DEX_TRADES_DOCS_URL = (
     "https://docs.goldsky.com/turbo-pipelines/sources/solana-dex-trades"
 )
@@ -39,76 +38,11 @@ class Goldsky(BaseProvider):
     """Fetch Solana metrics from a ClickHouse sink fed by Goldsky Turbo Pipelines."""
 
     METRIC_MAP: Dict[str, Dict[str, str]] = {
-        "overview_slots": {
-            "table": "blocks",
-            "date_field": "block_date",
-            "value_field": "slots",
-            "methodology": "Number of block-producing slots per day, counted from Goldsky's solana.blocks dataset (skipped slots excluded).",
-            "methodology_url": SOLANA_DOCS_URL,
-            "sql": """
-                SELECT
-                    toDate(timestamp) AS block_date,
-                    count() AS slots
-                FROM {table}
-                WHERE NOT skipped
-                  AND toDate(timestamp) BETWEEN toDate('{start_date}') AND toDate('{end_date}')
-                GROUP BY block_date
-                ORDER BY block_date ASC
-            """,
-        },
-        "overview_tx_count_total": {
-            "table": "blocks",
-            "date_field": "block_date",
-            "value_field": "total_txns",
-            "methodology": "Total transactions per day (vote and non-vote), summed from per-block transaction counts in Goldsky's solana.blocks dataset.",
-            "methodology_url": SOLANA_DOCS_URL,
-            "sql": """
-                SELECT
-                    toDate(timestamp) AS block_date,
-                    sum(transaction_count) AS total_txns
-                FROM {table}
-                WHERE toDate(timestamp) BETWEEN toDate('{start_date}') AND toDate('{end_date}')
-                GROUP BY block_date
-                ORDER BY block_date ASC
-            """,
-        },
-        "overview_fees": {
-            "table": "transactions",
-            "date_field": "block_date",
-            "value_field": "fee_sol",
-            "methodology": "Daily sum of transaction fees (base plus priority) in SOL across all transactions in Goldsky's solana.transactions dataset.",
-            "methodology_url": SOLANA_DOCS_URL,
-            "sql": """
-                SELECT
-                    toDate(block_timestamp) AS block_date,
-                    sum(fee) / 1e9 AS fee_sol
-                FROM {table}
-                WHERE toDate(block_timestamp) BETWEEN toDate('{start_date}') AND toDate('{end_date}')
-                GROUP BY block_date
-                ORDER BY block_date ASC
-            """,
-        },
-        "overview_compute_units": {
-            "table": "transactions",
-            "date_field": "block_date",
-            "value_field": "avg_compute_units_per_block",
-            "methodology": "Average compute units consumed per block daily, from Goldsky's solana.transactions dataset.",
-            "methodology_url": SOLANA_DOCS_URL,
-            "sql": """
-                SELECT
-                    toDate(block_timestamp) AS block_date,
-                    sum(compute_units_consumed) / count(DISTINCT block_slot) AS avg_compute_units_per_block
-                FROM {table}
-                WHERE toDate(block_timestamp) BETWEEN toDate('{start_date}') AND toDate('{end_date}')
-                GROUP BY block_date
-                ORDER BY block_date ASC
-            """,
-        },
         "defi_dex_transactions": {
             "table": "dex_swaps",
             "date_field": "block_date",
             "value_field": "transaction_count",
-            "methodology": "Number of distinct transactions containing a DEX swap per day, from Goldsky's normalized solana.dex_swaps dataset.",
+            "methodology": "Number of distinct transactions containing a successful DEX swap per day, from Goldsky's normalized solana.dex_swaps dataset. Failed swap attempts are excluded.",
             "methodology_url": DEX_TRADES_DOCS_URL,
             "sql": """
                 SELECT
@@ -116,6 +50,8 @@ class Goldsky(BaseProvider):
                     count(DISTINCT tx_id) AS transaction_count
                 FROM {table}
                 WHERE toDate(toDateTime(block_timestamp)) BETWEEN toDate('{start_date}') AND toDate('{end_date}')
+                  AND is_deleted = 0
+                  AND status = 1
                 GROUP BY block_date
                 ORDER BY block_date ASC
             """,
@@ -124,7 +60,7 @@ class Goldsky(BaseProvider):
             "table": "dex_swaps",
             "date_field": "block_date",
             "value_field": "unique_traders",
-            "methodology": "Number of unique trader accounts per day in Goldsky's solana.dex_swaps dataset. For router-mediated swaps the trader is the payer/owner on the swap instruction.",
+            "methodology": "Number of unique trader accounts with a successful swap per day in Goldsky's solana.dex_swaps dataset. For router-mediated swaps the trader is the payer/owner on the swap instruction. Failed swap attempts are excluded.",
             "methodology_url": DEX_TRADES_DOCS_URL,
             "sql": """
                 SELECT
@@ -132,6 +68,8 @@ class Goldsky(BaseProvider):
                     count(DISTINCT trader_id) AS unique_traders
                 FROM {table}
                 WHERE toDate(toDateTime(block_timestamp)) BETWEEN toDate('{start_date}') AND toDate('{end_date}')
+                  AND is_deleted = 0
+                  AND status = 1
                 GROUP BY block_date
                 ORDER BY block_date ASC
             """,
@@ -140,7 +78,7 @@ class Goldsky(BaseProvider):
             "table": "dex_swaps",
             "date_field": "block_date",
             "value_field": "unique_dex_count",
-            "methodology": "Number of unique DEX projects with at least one swap per day, from Goldsky's solana.dex_swaps dataset.",
+            "methodology": "Number of unique DEX projects with at least one successful swap per day, from Goldsky's solana.dex_swaps dataset. Failed swap attempts, and swaps whose project could not be attributed (null project), are excluded.",
             "methodology_url": DEX_TRADES_DOCS_URL,
             "sql": """
                 SELECT
@@ -148,15 +86,18 @@ class Goldsky(BaseProvider):
                     count(DISTINCT project) AS unique_dex_count
                 FROM {table}
                 WHERE toDate(toDateTime(block_timestamp)) BETWEEN toDate('{start_date}') AND toDate('{end_date}')
+                  AND is_deleted = 0
+                  AND status = 1
+                  AND project IS NOT NULL
                 GROUP BY block_date
                 ORDER BY block_date ASC
             """,
         },
     }
 
+    DEFAULT_DATABASE = "community"
+
     DEFAULT_TABLES: Dict[str, str] = {
-        "blocks": "solana_blocks",
-        "transactions": "solana_transactions",
         "dex_swaps": "solana_dex_swaps",
     }
 
@@ -178,7 +119,9 @@ class Goldsky(BaseProvider):
             password or os.environ.get("GOLDSKY_CLICKHOUSE_PASSWORD") or ""
         )
         self._database = (
-            database or os.environ.get("GOLDSKY_CLICKHOUSE_DATABASE") or "default"
+            database
+            or os.environ.get("GOLDSKY_CLICKHOUSE_DATABASE")
+            or self.DEFAULT_DATABASE
         )
         self._tables = {**self.DEFAULT_TABLES, **(tables or {})}
 
@@ -240,7 +183,7 @@ class Goldsky(BaseProvider):
             result.append({"date": row_date, "value": float(value)})
         return result
 
-    def get_metric(self, metric: str, date: str, chain: str) -> Overview | Defi | None:
+    def get_metric(self, metric: str, date: str, chain: str) -> Defi | None:
         """Fetch one metric value and return it as a typed metric model."""
         rows = self.fetch_rows(metric, date, date)
         if not rows:
@@ -248,19 +191,6 @@ class Goldsky(BaseProvider):
 
         value = rows[0]["value"]
         parsed_date = datetime.date.fromisoformat(date)
-
-        overview_metric_map = {
-            "overview_slots": OverviewMetricType.SLOTS,
-            "overview_tx_count_total": OverviewMetricType.TX_COUNT_TOTAL,
-            "overview_fees": OverviewMetricType.FEES,
-            "overview_compute_units": OverviewMetricType.COMPUTE_UNITS,
-        }
-        if metric in overview_metric_map:
-            return Overview.from_metric_type(
-                metric_type=overview_metric_map[metric],
-                date=parsed_date,
-                value=value,
-            )
 
         defi_metric_map = {
             "defi_dex_transactions": DefiMetricType.DEX_TRANSACTIONS,

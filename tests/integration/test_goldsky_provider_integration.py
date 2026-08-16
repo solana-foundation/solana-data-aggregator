@@ -20,10 +20,12 @@ def test_get_dex_transactions_live_sink() -> None:
     if not CLICKHOUSE_URL:
         pytest.skip("Set GOLDSKY_CLICKHOUSE_URL to run live Goldsky integration tests.")
 
+    # The sink is backfilled sparsely, so pin a date known to be populated
+    # rather than a relative one.
     provider = Goldsky()
     metric = provider.get_metric(
         metric="defi_dex_transactions",
-        date="2026-01-01",
+        date="2026-08-15",
         chain="solana",
     )
 

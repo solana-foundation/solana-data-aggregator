@@ -37,4 +37,8 @@ def test_get_dex_transactions_returns_defi_metric() -> None:
 
     sql_sent = mock_post.call_args.kwargs["data"]
     assert "solana_dex_swaps" in sql_sent
+    # CDC soft-deletes and failed swap attempts must not be counted.
+    assert "is_deleted = 0" in sql_sent
+    assert "status = 1" in sql_sent
     assert "FORMAT JSON" in sql_sent
+    assert mock_post.call_args.kwargs["params"]["database"] == "community"
