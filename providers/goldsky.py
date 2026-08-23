@@ -3,12 +3,22 @@
 Goldsky Turbo Pipelines (https://docs.goldsky.com/turbo-pipelines/sources/solana)
 stream curated Solana datasets into a database sink rather than exposing a hosted
 query API. This provider queries a ClickHouse sink populated by a Turbo pipeline
-from the ``solana.dex_swaps`` dataset, landing as ``community.solana_dex_swaps``.
+from two datasets:
 
-``block_timestamp`` is a Unix timestamp in seconds, so the daily bucket is derived
-as ``toDate(toDateTime(block_timestamp))``. Every metric counts only live, successful
-swaps (``is_deleted = 0 AND status = 1``): ``is_deleted`` is a CDC soft-delete marker,
-and ``status = 0`` rows are failed swap attempts, which other providers exclude too.
+- ``solana.dex_swaps``               -> ``community.solana_dex_swaps``
+- ``solana.stable_coin_transfers``   -> ``community.solana_stable_coin_transfers``
+
+``block_timestamp`` is a Unix timestamp in seconds on both tables, so the daily bucket
+is derived as ``toDate(toDateTime(block_timestamp))``. Every metric counts only live,
+successful rows (``is_deleted = 0 AND status = 1``): ``is_deleted`` is a CDC
+soft-delete marker, and ``status = 0`` rows are failed transactions, which other
+providers exclude too. On the stablecoin table ``status`` was verified against the
+``err`` column -- they agree on every row.
+
+The stablecoin table carries several pegs (``asset_id`` of ``usd``, ``eur``, ``vchf``,
+...) and holds no price data, so the two USD-denominated metrics are scoped to
+``asset_id = 'usd'`` and assume a 1:1 peg. Counts that are not currency-denominated
+span every curated stablecoin.
 
 Queries run over the ClickHouse HTTP interface, configured via:
 
@@ -27,10 +37,14 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from metrics.defi import Defi, DefiMetricType
+from metrics.stablecoin import Stablecoin, StablecoinMetricType
 from providers.base import BaseProvider
 
 DEX_TRADES_DOCS_URL = (
     "https://docs.goldsky.com/turbo-pipelines/sources/solana-dex-trades"
+)
+STABLECOIN_DOCS_URL = (
+    "https://docs.goldsky.com/turbo-pipelines/sources/solana-stablecoin-transfers"
 )
 
 
@@ -93,12 +107,91 @@ class Goldsky(BaseProvider):
                 ORDER BY block_date ASC
             """,
         },
+        "stablecoin_transfer_count": {
+            "table": "stable_coin_transfers",
+            "date_field": "block_date",
+            "value_field": "transfer_count",
+            "methodology": "Number of distinct transactions containing a stablecoin transfer per day, across all curated stablecoins in Goldsky's solana.stable_coin_transfers dataset. Mints and burns are not transfers and are excluded, as are failed transactions.",
+            "methodology_url": STABLECOIN_DOCS_URL,
+            "sql": """
+                SELECT
+                    toDate(toDateTime(block_timestamp)) AS block_date,
+                    count(DISTINCT signature) AS transfer_count
+                FROM {table}
+                WHERE toDate(toDateTime(block_timestamp)) BETWEEN toDate('{start_date}') AND toDate('{end_date}')
+                  AND is_deleted = 0
+                  AND status = 1
+                  AND transfer_type NOT IN ('MintTo', 'MintToChecked', 'Burn', 'BurnChecked')
+                GROUP BY block_date
+                ORDER BY block_date ASC
+            """,
+        },
+        "stablecoin_transfer_volume": {
+            "table": "stable_coin_transfers",
+            "date_field": "block_date",
+            "value_field": "transfer_volume",
+            "methodology": "Daily transfer volume of USD-pegged stablecoins in Goldsky's solana.stable_coin_transfers dataset, summed over mint-decimal-normalized amounts. The dataset carries no prices, so each token is valued at its 1:1 peg and non-USD pegs (eur, vchf, ...) are excluded. Mints, burns, and failed transactions are excluded.",
+            "methodology_url": STABLECOIN_DOCS_URL,
+            "sql": """
+                SELECT
+                    toDate(toDateTime(block_timestamp)) AS block_date,
+                    sum(amount_normalized) AS transfer_volume
+                FROM {table}
+                WHERE toDate(toDateTime(block_timestamp)) BETWEEN toDate('{start_date}') AND toDate('{end_date}')
+                  AND is_deleted = 0
+                  AND status = 1
+                  AND asset_id = 'usd'
+                  AND transfer_type NOT IN ('MintTo', 'MintToChecked', 'Burn', 'BurnChecked')
+                GROUP BY block_date
+                ORDER BY block_date ASC
+            """,
+        },
+        "stablecoin_active_addresses": {
+            "table": "stable_coin_transfers",
+            "date_field": "block_date",
+            "value_field": "active_addresses",
+            "methodology": "Number of unique wallets on either side of a stablecoin transfer per day, across all curated stablecoins in Goldsky's solana.stable_coin_transfers dataset. Sender and recipient owners are pooled, so a wallet that both sends and receives counts once. Mints and burns are included as interactions; failed transactions are excluded.",
+            "methodology_url": STABLECOIN_DOCS_URL,
+            "sql": """
+                SELECT
+                    toDate(toDateTime(block_timestamp)) AS block_date,
+                    count(DISTINCT owner) AS active_addresses
+                FROM {table}
+                ARRAY JOIN [from_owner, to_owner] AS owner
+                WHERE toDate(toDateTime(block_timestamp)) BETWEEN toDate('{start_date}') AND toDate('{end_date}')
+                  AND is_deleted = 0
+                  AND status = 1
+                  AND owner IS NOT NULL
+                GROUP BY block_date
+                ORDER BY block_date ASC
+            """,
+        },
+        "stablecoin_count": {
+            "table": "stable_coin_transfers",
+            "date_field": "block_date",
+            "value_field": "stablecoin_count",
+            "methodology": "Number of distinct USD-pegged stablecoin mints with at least one transfer per day in Goldsky's solana.stable_coin_transfers dataset, counted by asset-registry variant id. This is stablecoins seen in activity, not the number in existence. Failed transactions are excluded.",
+            "methodology_url": STABLECOIN_DOCS_URL,
+            "sql": """
+                SELECT
+                    toDate(toDateTime(block_timestamp)) AS block_date,
+                    count(DISTINCT variant_id) AS stablecoin_count
+                FROM {table}
+                WHERE toDate(toDateTime(block_timestamp)) BETWEEN toDate('{start_date}') AND toDate('{end_date}')
+                  AND is_deleted = 0
+                  AND status = 1
+                  AND asset_id = 'usd'
+                GROUP BY block_date
+                ORDER BY block_date ASC
+            """,
+        },
     }
 
     DEFAULT_DATABASE = "community"
 
     DEFAULT_TABLES: Dict[str, str] = {
         "dex_swaps": "solana_dex_swaps",
+        "stable_coin_transfers": "solana_stable_coin_transfers",
     }
 
     def __init__(
@@ -183,7 +276,9 @@ class Goldsky(BaseProvider):
             result.append({"date": row_date, "value": float(value)})
         return result
 
-    def get_metric(self, metric: str, date: str, chain: str) -> Defi | None:
+    def get_metric(
+        self, metric: str, date: str, chain: str
+    ) -> Defi | Stablecoin | None:
         """Fetch one metric value and return it as a typed metric model."""
         rows = self.fetch_rows(metric, date, date)
         if not rows:
@@ -200,6 +295,19 @@ class Goldsky(BaseProvider):
         if metric in defi_metric_map:
             return Defi.from_metric_type(
                 metric_type=defi_metric_map[metric],
+                date=parsed_date,
+                value=value,
+            )
+
+        stablecoin_metric_map = {
+            "stablecoin_transfer_count": StablecoinMetricType.TRANSFER_COUNT,
+            "stablecoin_transfer_volume": StablecoinMetricType.TRANSFER_VOLUME,
+            "stablecoin_active_addresses": StablecoinMetricType.ACTIVE_ADDRESSES,
+            "stablecoin_count": StablecoinMetricType.COUNT,
+        }
+        if metric in stablecoin_metric_map:
+            return Stablecoin.from_metric_type(
+                metric_type=stablecoin_metric_map[metric],
                 date=parsed_date,
                 value=value,
             )
