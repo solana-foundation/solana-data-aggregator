@@ -130,12 +130,8 @@ class Solscan(BaseProvider):
         return str(value or "")[:10]
 
     @staticmethod
-    def _to_unix_seconds(date_str: str) -> int:
-        parsed = datetime.date.fromisoformat(date_str)
-        combined = datetime.datetime.combine(
-            parsed, datetime.time.min, tzinfo=datetime.timezone.utc
-        )
-        return int(combined.timestamp())
+    def _to_yyyymmdd(date_str: str) -> str:
+        return datetime.date.fromisoformat(date_str).strftime("%Y%m%d")
 
     def fetch_rows(
         self, metric: str, start_date: str, end_date: str
@@ -143,8 +139,8 @@ class Solscan(BaseProvider):
         """Return normalized {"date": str, "value": Any} records for the given range (both dates inclusive)."""
         config = self.METRIC_MAP[metric]
         params = dict(config.get("params") or {})
-        params["from_time"] = self._to_unix_seconds(start_date)
-        params["to_time"] = self._to_unix_seconds(end_date)
+        params["from_date"] = self._to_yyyymmdd(start_date)
+        params["to_date"] = self._to_yyyymmdd(end_date)
 
         body = self._get(config["endpoint"], params=params)
         series = body.get("data", {}).get("series", [])

@@ -123,7 +123,7 @@ def test_fetch_rows_filters_by_date_range() -> None:
     assert rows[0] == {"date": "2026-01-01", "value": 5_000.0}
 
 
-def test_fetch_rows_sends_filter_and_unix_time_range_params() -> None:
+def test_fetch_rows_sends_filter_and_date_range_params() -> None:
     provider = Solscan(api_key="key")
     mock_resp = _mock_resp(_series_response([]))
 
@@ -135,8 +135,8 @@ def test_fetch_rows_sends_filter_and_unix_time_range_params() -> None:
     mock_get.assert_called_once()
     _, kwargs = mock_get.call_args
     assert kwargs["params"]["filter"] == "nonvote_fail"
-    assert kwargs["params"]["from_time"] == 1767225600  # 2026-01-01T00:00:00Z
-    assert kwargs["params"]["to_time"] == 1767312000  # 2026-01-02T00:00:00Z
+    assert kwargs["params"]["from_date"] == "20260101"
+    assert kwargs["params"]["to_date"] == "20260102"
 
 
 def test_fetch_rows_raises_on_unknown_metric() -> None:
