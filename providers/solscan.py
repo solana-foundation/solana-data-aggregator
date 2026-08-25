@@ -96,6 +96,8 @@ class Solscan(BaseProvider):
             api_key=resolved_api_key,
         )
         self._session = requests.Session()
+        # Cache: (endpoint, sorted params tuple) -> raw response body
+        self._cache: Dict[tuple, dict] = {}
 
     # -- private helpers ----------------------------------------------------
 
@@ -104,14 +106,23 @@ class Solscan(BaseProvider):
         return os.environ.get("SOLSCAN_API_KEY")
 
     def _get(self, endpoint: str, *, params: Optional[Dict[str, Any]] = None) -> dict:
+        """GET an endpoint, caching by (endpoint, params) so metrics that share
+        an endpoint and params (e.g. the defi_dex_* metrics) only hit the API once."""
+        params = params or {}
+        cache_key = (endpoint, tuple(sorted(params.items())))
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+
         url = f"{self.base_url}{endpoint}"
         resp = self._session.get(
-            url, headers={"token": self.api_key}, params=params or {}, timeout=30
+            url, headers={"token": self.api_key}, params=params, timeout=30
         )
         resp.raise_for_status()
         body = resp.json()
         if not body.get("success", True):
             raise RuntimeError(body.get("error") or f"Solscan API error for {endpoint}")
+
+        self._cache[cache_key] = body
         return body
 
     @staticmethod
