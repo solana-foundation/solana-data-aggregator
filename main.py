@@ -37,6 +37,7 @@ from providers.topledger import TopLedger
 from providers.uniblock import Uniblock
 from providers.validators_app import ValidatorsApp
 from providers.birdeye import Birdeye
+from providers.solscan import Solscan
 
 OUTPUT_DIR = Path(__file__).parent / "_output"
 LOOKBACK_DAYS = 7
@@ -51,6 +52,7 @@ PROVIDER_REGISTRY: List[tuple[str, Type[BaseProvider], Optional[str]]] = [
     ("dune", Dune, "DUNE_API_KEY"),
     ("goldsky", Goldsky, "GOLDSKY_CLICKHOUSE_URL"),
     ("rwa", Rwa, "RWA_API_KEY"),
+    ("solscan", Solscan, "SOLSCAN_API_KEY"),
     ("stakewiz", Stakewiz, None),
     ("token_terminal", TokenTerminal, "TOKEN_TERMINAL_API_KEY"),
     ("topledger", TopLedger, "TOPLEDGER_API_KEY"),

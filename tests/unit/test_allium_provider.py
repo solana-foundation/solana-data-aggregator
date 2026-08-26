@@ -89,11 +89,11 @@ class TestAlliumPost:
 
 
 # ---------------------------------------------------------------------------
-# Allium — get_metric (stablecoin_supply)
+# Allium — get_metric (stablecoin_total_supply)
 # ---------------------------------------------------------------------------
 
 
-class TestGetMetricSupply:
+class TestGetMetricTotalSupply:
     def test_returns_stablecoin_metric(self, provider: Allium) -> None:
         rows = [{"date": "2026-01-01", "usd": 5_000_000_000.0}]
         sentinel_metric = object()
@@ -104,18 +104,18 @@ class TestGetMetricSupply:
                 Stablecoin, "from_metric_type", return_value=sentinel_metric
             ) as mock_factory,
         ):
-            result = provider.get_metric("stablecoin_supply", "2026-01-01", "solana")
+            result = provider.get_metric("stablecoin_total_supply", "2026-01-01", "solana")
 
         assert result is sentinel_metric
         mock_factory.assert_called_once()
         assert (
-            mock_factory.call_args.kwargs["metric_type"] == StablecoinMetricType.SUPPLY
+            mock_factory.call_args.kwargs["metric_type"] == StablecoinMetricType.TOTAL_SUPPLY
         )
         assert mock_factory.call_args.kwargs["value"] == 5_000_000_000.0
 
     def test_returns_none_on_empty_data(self, provider: Allium) -> None:
         with patch.object(provider._session, "post", side_effect=_mock_two_step([])):
-            result = provider.get_metric("stablecoin_supply", "2026-01-01", "solana")
+            result = provider.get_metric("stablecoin_total_supply", "2026-01-01", "solana")
 
         assert result is None
 
@@ -123,9 +123,38 @@ class TestGetMetricSupply:
         rows = [{"date": "2026-01-01", "usd": None}]
 
         with patch.object(provider._session, "post", side_effect=_mock_two_step(rows)):
-            result = provider.get_metric("stablecoin_supply", "2026-01-01", "solana")
+            result = provider.get_metric("stablecoin_total_supply", "2026-01-01", "solana")
 
         assert result is None
+
+
+# ---------------------------------------------------------------------------
+# Allium — get_metric (stablecoin_circulating_supply)
+# ---------------------------------------------------------------------------
+
+
+class TestGetMetricCirculatingSupply:
+    def test_returns_stablecoin_metric(self, provider: Allium) -> None:
+        rows = [{"date": "2026-01-01", "usd": 4_600_000_000.0}]
+        sentinel_metric = object()
+
+        with (
+            patch.object(provider._session, "post", side_effect=_mock_two_step(rows)),
+            patch.object(
+                Stablecoin, "from_metric_type", return_value=sentinel_metric
+            ) as mock_factory,
+        ):
+            result = provider.get_metric(
+                "stablecoin_circulating_supply", "2026-01-01", "solana"
+            )
+
+        assert result is sentinel_metric
+        mock_factory.assert_called_once()
+        assert (
+            mock_factory.call_args.kwargs["metric_type"]
+            == StablecoinMetricType.CIRCULATING_SUPPLY
+        )
+        assert mock_factory.call_args.kwargs["value"] == 4_600_000_000.0
 
 
 # ---------------------------------------------------------------------------
@@ -220,7 +249,7 @@ class TestDateMatching:
         rows = [{"day": "2025-12-31", "total_supply_usd": 4_000_000_000.0}]
 
         with patch.object(provider._session, "post", side_effect=_mock_two_step(rows)):
-            result = provider.get_metric("stablecoin_supply", "2026-01-01", "solana")
+            result = provider.get_metric("stablecoin_total_supply", "2026-01-01", "solana")
 
         assert result is None
 
@@ -233,6 +262,6 @@ class TestDateMatching:
             patch.object(provider._session, "post", side_effect=_mock_two_step(rows)),
             patch.object(Stablecoin, "from_metric_type", return_value=sentinel_metric),
         ):
-            result = provider.get_metric("stablecoin_supply", "2026-01-01", "solana")
+            result = provider.get_metric("stablecoin_total_supply", "2026-01-01", "solana")
 
         assert result is sentinel_metric

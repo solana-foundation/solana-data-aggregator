@@ -8,7 +8,7 @@ from metrics.stablecoin import Stablecoin, StablecoinMetricType
 from providers.artemis import Artemis
 
 
-def test_get_stablecoin_supply_returns_stablecoin_metric() -> None:
+def test_get_stablecoin_circulating_supply_returns_stablecoin_metric() -> None:
     provider = Artemis(api_key="key")
     mock_response = {
         "data": {
@@ -32,9 +32,9 @@ def test_get_stablecoin_supply_returns_stablecoin_metric() -> None:
             Stablecoin, "from_metric_type", return_value=sentinel_metric
         ) as mock_factory,
     ):
-        result = provider.get_metric("stablecoin_supply", "2026-01-01", "solana")
+        result = provider.get_metric("stablecoin_circulating_supply", "2026-01-01", "solana")
 
     assert result is sentinel_metric
     mock_factory.assert_called_once()
-    assert mock_factory.call_args.kwargs["metric_type"] == StablecoinMetricType.SUPPLY
+    assert mock_factory.call_args.kwargs["metric_type"] == StablecoinMetricType.CIRCULATING_SUPPLY
     assert mock_factory.call_args.kwargs["value"] == 5_000_000_000.0

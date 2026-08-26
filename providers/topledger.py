@@ -71,7 +71,7 @@ class TopLedger(BaseProvider):
             "value_field": "fee_payer",
             "methodology": "Unique signers of non-vote transactions",
         },
-        "stablecoin_supply": {
+        "stablecoin_circulating_supply": {
             "query_id": 15090,
             "date_field": "block_date",
             "value_field": "marketcap",
@@ -136,7 +136,7 @@ class TopLedger(BaseProvider):
     }
 
     _STABLECOIN_METRIC_TYPE_MAP: Dict[str, StablecoinMetricType] = {
-        "stablecoin_supply": StablecoinMetricType.SUPPLY,
+        "stablecoin_circulating_supply": StablecoinMetricType.CIRCULATING_SUPPLY,
         "stablecoin_count": StablecoinMetricType.COUNT,
         "stablecoin_transfer_volume": StablecoinMetricType.TRANSFER_VOLUME,
         "stablecoin_transfer_count": StablecoinMetricType.TRANSFER_COUNT,

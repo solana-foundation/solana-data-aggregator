@@ -168,9 +168,9 @@ def test_get_metric_stablecoin_defi() -> None:
     with patch.object(
         provider._session, "get", return_value=_make_mock_resp(_MARKET_HISTORY_RESPONSE)
     ):
-        result = provider.get_metric("stablecoin_supply", _DATE_7_7, "solana")
+        result = provider.get_metric("stablecoin_circulating_supply", _DATE_7_7, "solana")
         assert isinstance(result, Stablecoin)
-        assert result.metric_type == StablecoinMetricType.SUPPLY
+        assert result.metric_type == StablecoinMetricType.CIRCULATING_SUPPLY
         assert result.value == 14637051338.896027
         assert result.date == _date(_DATE_7_7)
 
@@ -192,7 +192,7 @@ def test_get_metric_stablecoin_defi_partial() -> None:
     with patch.object(
         provider._session, "get", return_value=_make_mock_resp(_MARKET_HISTORY_RESPONSE_PARTIAL)
     ):
-        result = provider.get_metric("stablecoin_supply", _DATE_7_8, "solana")
+        result = provider.get_metric("stablecoin_circulating_supply", _DATE_7_8, "solana")
         assert result is None
 
         result = provider.get_metric("defi_dex_volume", _DATE_7_8, "solana")
@@ -223,7 +223,7 @@ def test_fetch_rows_stablecoin_defi() -> None:
     with patch.object(
         provider._session, "get", return_value=_make_mock_resp(_MARKET_HISTORY_RESPONSE_MULTI_DAY)
     ):
-        rows = provider.fetch_rows("stablecoin_supply", _DATE_7_7, _DATE_7_8)
+        rows = provider.fetch_rows("stablecoin_circulating_supply", _DATE_7_7, _DATE_7_8)
         assert len(rows) == 1
         assert rows[0]["date"] == _DATE_7_7
         assert rows[0]["value"] == 14637051338.896027
@@ -279,7 +279,7 @@ def test_get_metric_failed() -> None:
         result = provider.get_metric("overview_sol_price", _DATE_7_7, "solana")
         assert result is None
 
-        result = provider.get_metric("stablecoin_supply", _DATE_7_7, "solana")
+        result = provider.get_metric("stablecoin_circulating_supply", _DATE_7_7, "solana")
         assert result is None
 
         result = provider.get_metric("defi_dex_volume", _DATE_7_7, "solana")

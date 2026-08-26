@@ -20,7 +20,7 @@ class Birdeye(BaseProvider):
         "overview_sol_price": {
             "endpoint": "/defi/history_price",
         },
-        "stablecoin_supply": {
+        "stablecoin_circulating_supply": {
             "endpoint": "/market/v1/blockchain-metrics",
             "metric_field": "stable_coin_market_cap",
             "methodology": "Total circulating supply, priced and aggregated across stablecoins.",
@@ -95,7 +95,7 @@ class Birdeye(BaseProvider):
             )
 
         stablecoin_metric_map = {
-            "stablecoin_supply": StablecoinMetricType.SUPPLY,
+            "stablecoin_circulating_supply": StablecoinMetricType.CIRCULATING_SUPPLY,
         }
         if metric in stablecoin_metric_map:
             return Stablecoin.from_metric_type(
@@ -159,7 +159,7 @@ class Birdeye(BaseProvider):
                                 }
                             )
 
-            case "stablecoin_supply" | "defi_dex_volume" | "defi_dex_transactions":
+            case "stablecoin_circulating_supply" | "defi_dex_volume" | "defi_dex_transactions":
                 while start_timestamp <= end_timestamp:
                     count = min(10, (end_timestamp - start_timestamp) // self.ONE_DAY_SECONDS + 1)
                     response = self._get(

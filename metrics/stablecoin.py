@@ -13,7 +13,8 @@ from metrics.base import BaseMetric
 class StablecoinMetricType(str, Enum):
     """Supported stablecoin metric categories."""
 
-    SUPPLY = "supply"
+    TOTAL_SUPPLY = "total_supply"
+    CIRCULATING_SUPPLY = "circulating_supply"
     TRANSFER_VOLUME = "transfer_volume"
     TRANSFER_COUNT = "transfer_count"
     ACTIVE_ADDRESSES = "active_addresses"
@@ -21,10 +22,15 @@ class StablecoinMetricType(str, Enum):
 
 
 _METRIC_METADATA: dict[StablecoinMetricType, dict[str, str]] = {
-    StablecoinMetricType.SUPPLY: {
-        "name": "Supply",
+    StablecoinMetricType.TOTAL_SUPPLY: {
+        "name": "Total Supply",
         "unit": "USD",
-        "description": "Total circulating supply of stablecoins on Solana, denominated in USD",
+        "description": "Total stablecoin supply on Solana, denominated in USD, including non-circulating treasury and pre-minted balances",
+    },
+    StablecoinMetricType.CIRCULATING_SUPPLY: {
+        "name": "Circulating Supply",
+        "unit": "USD",
+        "description": "Circulating supply of stablecoins on Solana, denominated in USD, excluding issuer treasury and locked balances",
     },
     StablecoinMetricType.TRANSFER_VOLUME: {
         "name": "Transfer Volume",

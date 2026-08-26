@@ -80,7 +80,7 @@ class TokenTerminal(BaseProvider):
                 "the denominator because they still occupied a slot."
             ),
         },
-        "stablecoin_supply": {
+        "stablecoin_total_supply": {
             # Total stablecoin supply = native issuance + bridged-in supply.
             # Token Terminal exposes these as two separate metric_ids; requesting
             # both in one call and summing them yields the bridged-inclusive total.
@@ -129,7 +129,7 @@ class TokenTerminal(BaseProvider):
     }
 
     _STABLECOIN_METRIC_TYPE_MAP: Dict[str, StablecoinMetricType] = {
-        "stablecoin_supply": StablecoinMetricType.SUPPLY,
+        "stablecoin_total_supply": StablecoinMetricType.TOTAL_SUPPLY,
     }
 
     _DEFI_METRIC_TYPE_MAP: Dict[str, DefiMetricType] = {
