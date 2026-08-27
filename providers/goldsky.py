@@ -111,12 +111,12 @@ class Goldsky(BaseProvider):
             "table": "stable_coin_transfers",
             "date_field": "block_date",
             "value_field": "transfer_count",
-            "methodology": "Number of distinct transactions containing a stablecoin transfer per day, across all curated stablecoins in Goldsky's solana.stable_coin_transfers dataset. Mints and burns are not transfers and are excluded, as are failed transactions.",
+            "methodology": "Number of stablecoin transfer instructions per day, across all curated stablecoins in Goldsky's solana.stable_coin_transfers dataset. Counts individual transfers, not transactions, so a transaction carrying several transfers contributes each one (~2 per transaction on average). Mints and burns are not transfers and are excluded, as are failed transactions.",
             "methodology_url": STABLECOIN_DOCS_URL,
             "sql": """
                 SELECT
                     toDate(toDateTime(block_timestamp)) AS block_date,
-                    count(DISTINCT signature) AS transfer_count
+                    count() AS transfer_count
                 FROM {table}
                 WHERE toDate(toDateTime(block_timestamp)) BETWEEN toDate('{start_date}') AND toDate('{end_date}')
                   AND is_deleted = 0
