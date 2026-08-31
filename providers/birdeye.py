@@ -155,7 +155,7 @@ class Birdeye(BaseProvider):
                             result.append(
                                 {
                                     "date": self._timestamp_to_date(timestamp),
-                                    "value": record["value"],
+                                    "value": float(record["value"]),
                                 }
                             )
 
@@ -188,7 +188,7 @@ class Birdeye(BaseProvider):
                                 result.append(
                                     {
                                         "date": self._timestamp_to_date(timestamp),
-                                        "value": record[metric_field],
+                                        "value": float(record[metric_field]),
                                     }
                                 ) 
                         if not data.get("has_more", False):

@@ -234,6 +234,11 @@ def test_fetch_rows_stablecoin_defi() -> None:
         assert rows[0]["value"] == 12066695086.76048
         assert rows[1]["date"] == _DATE_7_8
         assert rows[1]["value"] == 1234567890
+        # The API returns a whole number (no decimal point) for this day, which
+        # json-decodes as an int -- must still be cast to float so a mixed
+        # int/float "value" column across the date range doesn't break Spark's
+        # createDataFrame schema inference downstream.
+        assert isinstance(rows[1]["value"], float)
 
         rows = provider.fetch_rows("defi_dex_transactions", _DATE_7_7, _DATE_7_8)
         assert len(rows) == 1
