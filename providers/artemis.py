@@ -22,8 +22,9 @@ class Artemis(BaseProvider):
     """Fetch stablecoin metrics from the Artemis XYZ API."""
 
     METRIC_MAP: Dict[str, Dict[str, Any]] = {
+        "stablecoin_total_supply": {"endpoint": "STABLECOIN_SUPPLY_TOTAL"},
         "stablecoin_circulating_supply": {
-            "endpoint": "STABLECOIN_SUPPLY",
+            "endpoint": "STABLECOIN_SUPPLY_CIRCULATING",
         },
         "stablecoin_transfer_volume": {"endpoint": "STABLECOIN_TRANSFER_VOLUME"},
         "stablecoin_transfer_count": {"endpoint": "STABLECOIN_DAILY_TXNS"},
@@ -134,6 +135,7 @@ class Artemis(BaseProvider):
             )
 
         stablecoin_metric_map = {
+            "stablecoin_total_supply": StablecoinMetricType.TOTAL_SUPPLY,
             "stablecoin_circulating_supply": StablecoinMetricType.CIRCULATING_SUPPLY,
             "stablecoin_transfer_volume": StablecoinMetricType.TRANSFER_VOLUME,
             "stablecoin_transfer_count": StablecoinMetricType.TRANSFER_COUNT,

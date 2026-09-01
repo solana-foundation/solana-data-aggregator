@@ -14,7 +14,7 @@ def test_get_stablecoin_circulating_supply_returns_stablecoin_metric() -> None:
         "data": {
             "symbols": {
                 "solana": {
-                    "STABLECOIN_SUPPLY": [
+                    "STABLECOIN_SUPPLY_CIRCULATING": [
                         {"date": "2026-01-01", "val": 5_000_000_000.0},
                     ]
                 }
