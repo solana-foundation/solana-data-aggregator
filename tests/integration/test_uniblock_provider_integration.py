@@ -16,6 +16,8 @@ load_dotenv()
 API_KEY = os.environ.get("UNIBLOCK_API_KEY")
 _TODAY = datetime.date.today().isoformat()
 
+pytestmark = pytest.mark.skipif(not API_KEY, reason="UNIBLOCK_API_KEY not set")
+
 
 @pytest.mark.integration
 def test_fetch_sol_price_series_live_api() -> None:

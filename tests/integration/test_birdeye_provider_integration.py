@@ -15,6 +15,8 @@ from providers.birdeye import Birdeye
 load_dotenv()
 API_KEY = os.environ.get("BIRDEYE_API_KEY")
 
+pytestmark = pytest.mark.skipif(not API_KEY, reason="BIRDEYE_API_KEY not set")
+
 _TODAY = datetime.date.today()
 _TODAY_STR = _TODAY.isoformat()
 
