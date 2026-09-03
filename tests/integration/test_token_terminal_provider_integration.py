@@ -17,7 +17,7 @@ API_KEY = os.environ.get("TOKEN_TERMINAL_API_KEY")
 
 
 @pytest.mark.integration
-def test_get_stablecoin_total_supply_live_api() -> None:
+def test_get_stablecoin_circulating_supply_live_api() -> None:
     """Calls Token Terminal API directly and validates response mapping."""
     if not API_KEY:
         pytest.skip(
@@ -26,14 +26,14 @@ def test_get_stablecoin_total_supply_live_api() -> None:
 
     provider = TokenTerminal(api_key=API_KEY)
     metric = provider.get_metric(
-        metric="stablecoin_total_supply",
+        metric="stablecoin_circulating_supply",
         date="2025-01-01",
         chain="solana",
     )
 
     assert metric is not None
     assert isinstance(metric, Stablecoin)
-    assert metric.metric_type == StablecoinMetricType.TOTAL_SUPPLY
+    assert metric.metric_type == StablecoinMetricType.CIRCULATING_SUPPLY
     assert metric.value >= 0
 
 

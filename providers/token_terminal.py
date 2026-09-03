@@ -80,10 +80,14 @@ class TokenTerminal(BaseProvider):
                 "the denominator because they still occupied a slot."
             ),
         },
-        "stablecoin_total_supply": {
-            # Total stablecoin supply = native issuance + bridged-in supply.
-            # Token Terminal exposes these as two separate metric_ids; requesting
-            # both in one call and summing them yields the bridged-inclusive total.
+        "stablecoin_circulating_supply": {
+            # Token Terminal's ecosystem_stablecoin_supply is the sum of each
+            # issuer's outstanding supply, which excludes issuer treasury and
+            # pre-minted, not-yet-issued balances -- i.e. circulating supply, not
+            # total supply. Bridged-in stablecoins are tracked as a separate
+            # metric_id (ecosystem_bridged_stablecoin_supply); requesting both in
+            # one call and summing them yields the bridged-inclusive circulating
+            # total on Solana.
             "metric_id": "ecosystem_stablecoin_supply,ecosystem_bridged_stablecoin_supply",
             "date_field": "timestamp",
             "value_field": [
@@ -91,10 +95,10 @@ class TokenTerminal(BaseProvider):
                 "ecosystem_bridged_stablecoin_supply",
             ],
             "methodology": (
-                "Total stablecoin supply on Solana = native issuance "
+                "Circulating stablecoin supply on Solana = native issuance "
                 "(ecosystem_stablecoin_supply) + bridged-in supply "
-                "(ecosystem_bridged_stablecoin_supply). Circulating supply excludes "
-                "issuer treasury and pre-minted, not-yet-issued balances."
+                "(ecosystem_bridged_stablecoin_supply). Excludes issuer treasury "
+                "and pre-minted, not-yet-issued balances."
             ),
         },
         "defi_dex_volume": {
@@ -129,7 +133,7 @@ class TokenTerminal(BaseProvider):
     }
 
     _STABLECOIN_METRIC_TYPE_MAP: Dict[str, StablecoinMetricType] = {
-        "stablecoin_total_supply": StablecoinMetricType.TOTAL_SUPPLY,
+        "stablecoin_circulating_supply": StablecoinMetricType.CIRCULATING_SUPPLY,
     }
 
     _DEFI_METRIC_TYPE_MAP: Dict[str, DefiMetricType] = {
