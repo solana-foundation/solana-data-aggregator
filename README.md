@@ -21,8 +21,7 @@ Prefix the with `[Backfill]` indicating the following:
 
 ## Project Layout
 - `metrics/`: typed metric models and metadata mapping
-- `providers/`: provider interfaces (Allium, Artemis, Blockworks, DefiLlama, Dune, Goldsky, RWA, Solscan, Stakewiz, TokenTerminal, ValidatorsApp)
-
+- `providers/`: provider interfaces (Allium, Artemis, Bitquery, Blockworks, DefiLlama, Dune, Goldsky, RWA, Solscan, Stakewiz, TokenTerminal, ValidatorsApp)
 - `tests/unit/`: isolated provider and model behavior tests
 - `tests/integration/`: live API integration tests
 - `tests/conftest.py`: shared pytest fixtures and test setup
