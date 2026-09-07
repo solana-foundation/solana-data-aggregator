@@ -37,6 +37,7 @@ from providers.topledger import TopLedger
 from providers.uniblock import Uniblock
 from providers.validators_app import ValidatorsApp
 from providers.birdeye import Birdeye
+from providers.bitquery import Bitquery
 from providers.solscan import Solscan
 
 OUTPUT_DIR = Path(__file__).parent / "_output"
@@ -59,6 +60,7 @@ PROVIDER_REGISTRY: List[tuple[str, Type[BaseProvider], Optional[str]]] = [
     ("uniblock", Uniblock, "UNIBLOCK_API_KEY"),
     ("validators_app", ValidatorsApp, "VALIDATORS_APP_API_TOKEN"),
     ("birdeye", Birdeye, "BIRDEYE_API_KEY"),
+    ("bitquery", Bitquery, "BITQUERY_API_KEY"),
 ]
 
 
