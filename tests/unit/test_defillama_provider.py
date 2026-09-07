@@ -22,7 +22,7 @@ def _make_mock_resp(payload):
     return mock_resp
 
 
-def test_get_stablecoin_supply_returns_stablecoin_metric() -> None:
+def test_get_stablecoin_circulating_supply_returns_stablecoin_metric() -> None:
     provider = DefiLlama()
     sentinel_metric = object()
 
@@ -32,11 +32,11 @@ def test_get_stablecoin_supply_returns_stablecoin_metric() -> None:
             Stablecoin, "from_metric_type", return_value=sentinel_metric
         ) as mock_factory,
     ):
-        result = provider.get_metric("stablecoin_supply", "2026-01-01", "solana")
+        result = provider.get_metric("stablecoin_circulating_supply", "2026-01-01", "solana")
 
     assert result is sentinel_metric
     mock_factory.assert_called_once()
-    assert mock_factory.call_args.kwargs["metric_type"] == StablecoinMetricType.SUPPLY
+    assert mock_factory.call_args.kwargs["metric_type"] == StablecoinMetricType.CIRCULATING_SUPPLY
     assert mock_factory.call_args.kwargs["value"] == 5_000_000_000.0
 
 
@@ -58,7 +58,7 @@ def test_fetch_rows_filters_by_date_range() -> None:
     ]
 
     with patch.object(provider._session, "get", return_value=_make_mock_resp(raw)):
-        rows = provider.fetch_rows("stablecoin_supply", "2025-01-01", "2026-06-01")
+        rows = provider.fetch_rows("stablecoin_circulating_supply", "2025-01-01", "2026-06-01")
 
     assert len(rows) == 1
     assert rows[0]["date"] == "2026-01-01"

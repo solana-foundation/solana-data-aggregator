@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import datetime
+import os
 
 import pytest
+from dotenv import load_dotenv
 
 from metrics.overview import Overview, OverviewMetricType
 from providers.topledger import TopLedger
+
+load_dotenv()
+API_KEY = os.environ.get("TOPLEDGER_API_KEY")
+
+pytestmark = pytest.mark.skipif(not API_KEY, reason="TOPLEDGER_API_KEY not set")
 
 
 @pytest.mark.integration

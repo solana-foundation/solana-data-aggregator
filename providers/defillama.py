@@ -18,7 +18,7 @@ class DefiLlama(BaseProvider):
     """Fetch stablecoin metrics from the DefiLlama API."""
 
     METRIC_MAP: Dict[str, Dict[str, Any]] = {
-        "stablecoin_supply": {
+        "stablecoin_circulating_supply": {
             "endpoint": "/stablecoins/stablecoincharts/solana",
             "value_path": ["totalCirculating", "peggedUSD"],
             "methodology": "Bridge-aware circulating supply, priced and aggregated across stablecoins and peg types.",
@@ -43,6 +43,15 @@ class DefiLlama(BaseProvider):
         "overview_sol_price": {
             "endpoint": "/coins/chart/coingecko:solana",
             "coins_chart": True,
+        },
+        "overview_app_revenue": {
+            "endpoint": "/api/overview/fees/solana",
+            "params": {
+                "excludeTotalDataChart": "false",
+                "excludeTotalDataChartBreakdown": "true",
+                "dataType": "dailyAppRevenue",
+            },
+            "fees_overview": True,
         },
     }
 
@@ -133,6 +142,18 @@ class DefiLlama(BaseProvider):
                 result.append({"date": row_date, "value": float(entry["price"])})
             return result
 
+        if config.get("fees_overview"):
+            raw = self._get(
+                f"{self.base_url}{config['endpoint']}",
+                params=config.get("params"),
+            )
+            for ts, value in raw.get("totalDataChart", []):
+                row_date = self._ts_to_date(int(ts))
+                if not (start_date <= row_date <= end_date):
+                    continue
+                result.append({"date": row_date, "value": float(value)})
+            return result
+
         raw = self._get(
             f"{self.base_url}{config['endpoint']}",
             params=config.get("params"),
@@ -181,6 +202,7 @@ class DefiLlama(BaseProvider):
 
         overview_metric_map = {
             "overview_sol_price": OverviewMetricType.SOL_PRICE,
+            "overview_app_revenue": OverviewMetricType.APP_REVENUE,
         }
         if metric in overview_metric_map:
             return Overview.from_metric_type(
@@ -201,7 +223,7 @@ class DefiLlama(BaseProvider):
             )
 
         stablecoin_metric_map = {
-            "stablecoin_supply": StablecoinMetricType.SUPPLY,
+            "stablecoin_circulating_supply": StablecoinMetricType.CIRCULATING_SUPPLY,
             "stablecoin_transfer_volume": StablecoinMetricType.TRANSFER_VOLUME,
             "stablecoin_count": StablecoinMetricType.COUNT,
         }

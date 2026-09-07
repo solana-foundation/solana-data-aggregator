@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import datetime
 import math
+import os
+import time
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -31,7 +33,11 @@ class DexPaprika(BaseProvider):
     The session retries idempotent GETs with capped exponential backoff + jitter
     and honors ``Retry-After`` on 429/5xx, because the public API is rate-limited.
 
-    No API key required (public REST API).
+    An API key is optional. Set ``DEXPAPRIKA_API_KEY`` to raise the monthly
+    allowance; without it the provider keeps its current keyless behaviour.
+    Registered free keys are served on the same base URL, so nothing else
+    changes. The key goes in ``Authorization`` on its own, with no ``Bearer``
+    prefix, which the upstream API rejects with 401.
     """
 
     _CHAIN = "solana"
@@ -80,13 +86,27 @@ class DexPaprika(BaseProvider):
         "overview_sol_price": OverviewMetricType.SOL_PRICE,
     }
 
-    def __init__(self) -> None:
+    # /networks answers two metrics (volume and transactions) and run_provider
+    # calls fetch_rows once per metric on the same instance, so the response is
+    # memoised for a short window rather than fetched twice per run. The quota
+    # counts records returned, and /networks returns one per chain, so the
+    # second call was the single most expensive redundant request we made.
+    _NETWORKS_TTL = 60.0
+
+    def __init__(self, *, api_key: Optional[str] = None) -> None:
+        # Optional on purpose. main.py skips any provider whose required env var
+        # is unset, so making this mandatory would remove the provider entirely
+        # for anyone who has not set a key.
+        resolved_api_key = api_key or os.environ.get("DEXPAPRIKA_API_KEY") or ""
+
         super().__init__(
             name="DexPaprika",
             base_url=self.BASE_URL,
-            api_key="",
+            api_key=resolved_api_key,
         )
         self._session = requests.Session()
+        self._networks_cache: Optional[Any] = None
+        self._networks_cached_at = 0.0
         retry = Retry(
             total=3,
             backoff_factor=0.5,
@@ -115,16 +135,42 @@ class DexPaprika(BaseProvider):
             return None
         return result if math.isfinite(result) else None
 
+    def _headers(self) -> Dict[str, str]:
+        """Auth header when a key is configured, empty otherwise.
+
+        The key is the entire header value. A scheme prefix such as ``Bearer``
+        is not stripped upstream and makes a valid key fail with 401.
+        """
+        if not self.api_key:
+            return {}
+        return {"Authorization": self.api_key}
+
     def _get(self, endpoint: str, *, params: Optional[Dict[str, Any]] = None) -> Any:
         resp = self._session.get(
-            f"{self.base_url}{endpoint}", params=params or {}, timeout=self._TIMEOUT
+            f"{self.base_url}{endpoint}",
+            params=params or {},
+            headers=self._headers(),
+            timeout=self._TIMEOUT,
         )
         resp.raise_for_status()
         return resp.json()
 
+    def _get_networks(self) -> Any:
+        """Return /networks, reusing a recent response within one run."""
+        now = time.monotonic()
+        if (
+            self._networks_cache is not None
+            and now - self._networks_cached_at < self._NETWORKS_TTL
+        ):
+            return self._networks_cache
+        payload = self._get("/networks")
+        self._networks_cache = payload
+        self._networks_cached_at = now
+        return payload
+
     def _network_field(self, field: str) -> Optional[float]:
         """Return a 24h aggregate field for the target chain from /networks."""
-        networks = self._get("/networks")
+        networks = self._get_networks()
         for network in networks if isinstance(networks, list) else []:
             if network.get("id") == self._CHAIN:
                 return self._to_float(network.get(field))

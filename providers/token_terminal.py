@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from metrics.defi import Defi, DefiMetricType
+from metrics.network import Network, NetworkMetricType
 from metrics.overview import Overview, OverviewMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
 from providers.base import BaseProvider
@@ -38,10 +39,55 @@ class TokenTerminal(BaseProvider):
             "date_field": "timestamp",
             "value_field": "active_addresses_daily",
         },
-        "stablecoin_supply": {
-            # Total stablecoin supply = native issuance + bridged-in supply.
-            # Token Terminal exposes these as two separate metric_ids; requesting
-            # both in one call and summing them yields the bridged-inclusive total.
+        "overview_non_vote_tx_count_success": {
+            "metric_id": "successful_non_vote_transaction_count",
+            "date_field": "timestamp",
+            "value_field": "successful_non_vote_transaction_count",
+            "methodology": (
+                "Non-vote transactions that executed without error, aggregated from "
+                "the per-block counts Solana records. Sums with the failed count to "
+                "the total non-vote transaction count."
+            ),
+        },
+        "overview_non_vote_tx_count_failed": {
+            "metric_id": "failed_non_vote_transaction_count",
+            "date_field": "timestamp",
+            "value_field": "failed_non_vote_transaction_count",
+            "methodology": (
+                "Non-vote transactions that reverted with an error. They were "
+                "included in a block and paid a fee, so this counts wasted execution "
+                "rather than dropped demand."
+            ),
+        },
+        "overview_slots": {
+            "metric_id": "slot_count",
+            "date_field": "timestamp",
+            "value_field": "slot_count",
+            "methodology": (
+                "Slots in which a leader produced a block. Skipped slots are "
+                "excluded, so the shortfall against the slot schedule is the leader "
+                "skip rate."
+            ),
+        },
+        "overview_compute_units": {
+            "metric_id": "compute_units_per_block",
+            "date_field": "timestamp",
+            "value_field": "compute_units_per_block",
+            "methodology": (
+                "Average compute units consumed per produced block. Both successful "
+                "and failed non-vote transactions count, since failed transactions "
+                "still consume compute. Blocks carrying no transactions remain in "
+                "the denominator because they still occupied a slot."
+            ),
+        },
+        "stablecoin_circulating_supply": {
+            # Token Terminal's ecosystem_stablecoin_supply is the sum of each
+            # issuer's outstanding supply, which excludes issuer treasury and
+            # pre-minted, not-yet-issued balances -- i.e. circulating supply, not
+            # total supply. Bridged-in stablecoins are tracked as a separate
+            # metric_id (ecosystem_bridged_stablecoin_supply); requesting both in
+            # one call and summing them yields the bridged-inclusive circulating
+            # total on Solana.
             "metric_id": "ecosystem_stablecoin_supply,ecosystem_bridged_stablecoin_supply",
             "date_field": "timestamp",
             "value_field": [
@@ -49,10 +95,10 @@ class TokenTerminal(BaseProvider):
                 "ecosystem_bridged_stablecoin_supply",
             ],
             "methodology": (
-                "Total stablecoin supply on Solana = native issuance "
+                "Circulating stablecoin supply on Solana = native issuance "
                 "(ecosystem_stablecoin_supply) + bridged-in supply "
-                "(ecosystem_bridged_stablecoin_supply). Circulating supply excludes "
-                "issuer treasury and pre-minted, not-yet-issued balances."
+                "(ecosystem_bridged_stablecoin_supply). Excludes issuer treasury "
+                "and pre-minted, not-yet-issued balances."
             ),
         },
         "defi_dex_volume": {
@@ -61,6 +107,41 @@ class TokenTerminal(BaseProvider):
             "value_field": "ecosystem_dex_trading_volume",
             "methodology": "DEX trade volume varies by indexed venues, pricing, and filtering methodology.",
         },
+        "network_validator_count": {
+            "metric_id": "number_of_validators",
+            "date_field": "timestamp",
+            "value_field": "number_of_validators",
+            "methodology": (
+                "Validators are counted from Solana's native rewards system: an "
+                "address counts for a day if it received a voting reward on that "
+                "day, which only happens for validators taking part in consensus. "
+                "Validators that were delinquent for the whole day therefore drop "
+                "out of the count."
+            ),
+        },
+    }
+
+    _OVERVIEW_METRIC_TYPE_MAP: Dict[str, OverviewMetricType] = {
+        "overview_tx_count_total": OverviewMetricType.TX_COUNT_TOTAL,
+        "overview_tx_count_vote": OverviewMetricType.TX_COUNT_VOTE,
+        "overview_sol_price": OverviewMetricType.SOL_PRICE,
+        "overview_fee_payers": OverviewMetricType.FEE_PAYERS,
+        "overview_non_vote_tx_count_success": OverviewMetricType.TX_COUNT_NON_VOTE_SUCCESS,
+        "overview_non_vote_tx_count_failed": OverviewMetricType.TX_COUNT_NON_VOTE_FAILED,
+        "overview_slots": OverviewMetricType.SLOTS,
+        "overview_compute_units": OverviewMetricType.COMPUTE_UNITS,
+    }
+
+    _STABLECOIN_METRIC_TYPE_MAP: Dict[str, StablecoinMetricType] = {
+        "stablecoin_circulating_supply": StablecoinMetricType.CIRCULATING_SUPPLY,
+    }
+
+    _DEFI_METRIC_TYPE_MAP: Dict[str, DefiMetricType] = {
+        "defi_dex_volume": DefiMetricType.DEX_VOLUME,
+    }
+
+    _NETWORK_METRIC_TYPE_MAP: Dict[str, NetworkMetricType] = {
+        "network_validator_count": NetworkMetricType.VALIDATOR_COUNT,
     }
 
     BASE_URL = "https://api.tokenterminal.com/v2"
@@ -140,43 +221,36 @@ class TokenTerminal(BaseProvider):
 
     def get_metric(
         self, metric: str, date: str, chain: str
-    ) -> Stablecoin | Overview | Defi | None:
+    ) -> Stablecoin | Overview | Defi | Network | None:
         """Fetch one metric value and return it as a typed metric model."""
         rows = self.fetch_rows(metric, date, date)
         if not rows:
             return None
-
         value = rows[0]["value"]
         parsed_date = datetime.date.fromisoformat(date)
 
-        overview_metric_map: Dict[str, OverviewMetricType] = {
-            "overview_tx_count_total": OverviewMetricType.TX_COUNT_TOTAL,
-            "overview_tx_count_vote": OverviewMetricType.TX_COUNT_VOTE,
-            "overview_sol_price": OverviewMetricType.SOL_PRICE,
-            "overview_fee_payers": OverviewMetricType.FEE_PAYERS,
-        }
-        if metric in overview_metric_map:
+        overview_type = self._OVERVIEW_METRIC_TYPE_MAP.get(metric)
+        if overview_type is not None:
             return Overview.from_metric_type(
-                metric_type=overview_metric_map[metric],
-                date=parsed_date,
-                value=value,
+                metric_type=overview_type, date=parsed_date, value=value
             )
 
-        defi_metric_map: Dict[str, DefiMetricType] = {
-            "defi_dex_volume": DefiMetricType.DEX_VOLUME,
-        }
-        if metric in defi_metric_map:
+        stablecoin_type = self._STABLECOIN_METRIC_TYPE_MAP.get(metric)
+        if stablecoin_type is not None:
+            return Stablecoin.from_metric_type(
+                metric_type=stablecoin_type, date=parsed_date, value=value
+            )
+
+        defi_type = self._DEFI_METRIC_TYPE_MAP.get(metric)
+        if defi_type is not None:
             return Defi.from_metric_type(
-                metric_type=defi_metric_map[metric],
-                date=parsed_date,
-                value=value,
+                metric_type=defi_type, date=parsed_date, value=value
             )
 
-        stablecoin_metric_map: Dict[str, StablecoinMetricType] = {
-            "stablecoin_supply": StablecoinMetricType.SUPPLY,
-        }
-        return Stablecoin.from_metric_type(
-            metric_type=stablecoin_metric_map[metric],
-            date=parsed_date,
-            value=value,
-        )
+        network_type = self._NETWORK_METRIC_TYPE_MAP.get(metric)
+        if network_type is not None:
+            return Network.from_metric_type(
+                metric_type=network_type, date=parsed_date, value=value
+            )
+
+        return None
