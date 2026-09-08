@@ -28,10 +28,10 @@ _TRADES_RESPONSE = {
     }
 }
 
-_PAIRS_RESPONSE = {
+_VOLUME_RESPONSE = {
     "data": {
         "Trading": {
-            "Pairs": [
+            "Trades": [
                 {"Block": {"Date": "2026-08-10"}, "value": "5856833485.5"},
                 {"Block": {"Date": "2026-08-11"}, "value": "5735027474.1"},
                 {"Block": {"Date": "2026-08-12"}, "value": "4962759327.9"},
@@ -83,7 +83,7 @@ def test_fetch_rows_trades_counts_are_ints_and_range_filtered() -> None:
 
 
 def test_fetch_rows_volume_parses_string_floats() -> None:
-    provider = _provider_with_response(_PAIRS_RESPONSE)
+    provider = _provider_with_response(_VOLUME_RESPONSE)
     rows = provider.fetch_rows("defi_dex_volume", _START, _END)
 
     assert len(rows) == 3
@@ -124,8 +124,17 @@ def test_query_uses_inclusive_day_bounds() -> None:
     assert "bid:solana" in query
 
 
+def test_volume_query_applies_per_trade_usd_band() -> None:
+    provider = _provider_with_response(_VOLUME_RESPONSE)
+    provider.fetch_rows("defi_dex_volume", _START, _END)
+
+    query = provider._session.post.call_args.kwargs["json"]["query"]
+    assert "AmountsInUsd: {Quote: {gt: 1, lt: 10000000}}" in query
+    assert "sum(of: AmountsInUsd_Quote)" in query
+
+
 def test_get_metric_defi() -> None:
-    provider = _provider_with_response(_PAIRS_RESPONSE)
+    provider = _provider_with_response(_VOLUME_RESPONSE)
     metric = provider.get_metric("defi_dex_volume", "2026-08-11", "solana")
 
     assert isinstance(metric, Defi)
