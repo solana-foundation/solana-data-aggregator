@@ -35,7 +35,6 @@ from metrics.overview import Overview, OverviewMetricType
 from providers.base import BaseProvider
 
 TRADES_DOCS_URL = "https://docs.bitquery.io/docs/trading/crypto-trades-api/trades-api/"
-PAIRS_DOCS_URL = "https://docs.bitquery.io/docs/trading/crypto-price-api/pairs/"
 TOKENS_DOCS_URL = "https://docs.bitquery.io/docs/trading/crypto-price-api/tokens/"
 
 # Wrapped SOL mint; the Price Index prices native SOL via the wSOL token.
@@ -51,15 +50,25 @@ _TRADES_QUERY = """
   ) {{ Block {{ Date }} value: {aggregate} }} }} }}
 """
 
-_PAIRS_VOLUME_QUERY = """
-{{ Trading {{ Pairs(
+# Per-trade USD bounds applied to the volume metric. The lower bound drops
+# dust/decimal-noise trades; the upper bound drops trades whose quote-leg USD
+# value is implausibly large (e.g. wash trades in self-paired junk-token pools
+# that the Price Index misprices by orders of magnitude). Validated against
+# other daily Solana DEX volume sources: the band keeps totals within a few
+# percent of them, while a single unfiltered pool can otherwise inflate a day
+# from ~$7B to hundreds of trillions.
+_VOLUME_MIN_TRADE_USD = 1
+_VOLUME_MAX_TRADE_USD = 10_000_000
+
+_TRADES_VOLUME_QUERY = """
+{{ Trading {{ Trades(
     where: {{
-      Market: {{NetworkBid: {{is: "bid:solana"}}}},
-      Interval: {{Time: {{Duration: {{eq: 3600}}}}}},
-      Block: {{Time: {{since: "{since}", till: "{till}"}}}}
+      Block: {{Time: {{since: "{since}", till: "{till}"}}}},
+      Pair: {{Market: {{NetworkBid: {{is: "bid:solana"}}}}}},
+      AmountsInUsd: {{Quote: {{gt: {min_trade_usd}, lt: {max_trade_usd}}}}}
     }}
     orderBy: {{ascending: Block_Date}}
-  ) {{ Block {{ Date }} value: sum(of: Volume_Usd) }} }} }}
+  ) {{ Block {{ Date }} value: sum(of: AmountsInUsd_Quote) }} }} }}
 """
 
 _TOKENS_PRICE_QUERY = """
@@ -84,25 +93,29 @@ class Bitquery(BaseProvider):
 
     METRIC_MAP: Dict[str, Dict[str, Any]] = {
         "defi_dex_volume": {
-            "cube": "Pairs",
-            "query": _PAIRS_VOLUME_QUERY,
+            "cube": "Trades",
+            "query": _TRADES_VOLUME_QUERY,
             "cast": float,
             "methodology": (
-                "Daily USD volume summed across all DEX trading pairs indexed on "
-                "Solana, from the pre-aggregated Trading.Pairs cube. Covers every "
-                "indexed swap; MEV and outlier trades are filtered by the Bitquery "
-                "Price Index before aggregation."
+                "Daily USD DEX volume on Solana: quote-leg USD amounts "
+                "(AmountsInUsd.Quote) summed per day over swap-level rows in the "
+                "Trading.Trades cube, keeping only trades between "
+                f"${_VOLUME_MIN_TRADE_USD} and ${_VOLUME_MAX_TRADE_USD:,} to "
+                "exclude dust and mispriced outlier trades (e.g. wash trading in "
+                "self-paired junk-token pools)."
             ),
-            "methodology_url": PAIRS_DOCS_URL,
+            "methodology_url": TRADES_DOCS_URL,
         },
         "defi_dex_transactions": {
             "cube": "Trades",
             "query": _TRADES_QUERY,
-            "aggregate": "count",
+            "aggregate": "count(distinct: TransactionHeader_Hash)",
             "cast": int,
             "methodology": (
-                "Number of DEX swaps per day on Solana from the Trading.Trades "
-                "cube (one row per swap, MEV/outlier-filtered)."
+                "Number of distinct transactions containing at least one DEX "
+                "swap per day on Solana, from the Trading.Trades cube. Counting "
+                "distinct transaction hashes (rather than swap rows) keeps "
+                "multi-hop routed trades from being counted once per hop."
             ),
             "methodology_url": TRADES_DOCS_URL,
         },
@@ -231,6 +244,8 @@ class Bitquery(BaseProvider):
             till=till,
             aggregate=config.get("aggregate", ""),
             mint=_WSOL_MINT,
+            min_trade_usd=_VOLUME_MIN_TRADE_USD,
+            max_trade_usd=_VOLUME_MAX_TRADE_USD,
         )
         data = self._post(query)
         rows = (data.get("Trading") or {}).get(config["cube"]) or []
