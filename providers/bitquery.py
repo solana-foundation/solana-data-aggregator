@@ -109,11 +109,13 @@ class Bitquery(BaseProvider):
         "defi_dex_transactions": {
             "cube": "Trades",
             "query": _TRADES_QUERY,
-            "aggregate": "count",
+            "aggregate": "count(distinct: TransactionHeader_Hash)",
             "cast": int,
             "methodology": (
-                "Number of DEX swaps per day on Solana from the Trading.Trades "
-                "cube (one row per swap, MEV/outlier-filtered)."
+                "Number of distinct transactions containing at least one DEX "
+                "swap per day on Solana, from the Trading.Trades cube. Counting "
+                "distinct transaction hashes (rather than swap rows) keeps "
+                "multi-hop routed trades from being counted once per hop."
             ),
             "methodology_url": TRADES_DOCS_URL,
         },
