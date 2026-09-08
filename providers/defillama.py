@@ -18,7 +18,7 @@ class DefiLlama(BaseProvider):
     """Fetch stablecoin metrics from the DefiLlama API."""
 
     METRIC_MAP: Dict[str, Dict[str, Any]] = {
-        "stablecoin_supply": {
+        "stablecoin_circulating_supply": {
             "endpoint": "/stablecoins/stablecoincharts/solana",
             "value_path": ["totalCirculating", "peggedUSD"],
             "methodology": "Bridge-aware circulating supply, priced and aggregated across stablecoins and peg types.",
@@ -223,7 +223,7 @@ class DefiLlama(BaseProvider):
             )
 
         stablecoin_metric_map = {
-            "stablecoin_supply": StablecoinMetricType.SUPPLY,
+            "stablecoin_circulating_supply": StablecoinMetricType.CIRCULATING_SUPPLY,
             "stablecoin_transfer_volume": StablecoinMetricType.TRANSFER_VOLUME,
             "stablecoin_count": StablecoinMetricType.COUNT,
         }

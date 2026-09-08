@@ -19,14 +19,27 @@ class Allium(BaseProvider):
     """Fetch stablecoin metrics from the Allium Explorer API."""
 
     METRIC_MAP: Dict[str, Dict[str, str]] = {
-        "stablecoin_supply": {
+        "stablecoin_total_supply": {
             "date_field": "date",
             "value_field": "usd",
-            "methodology": "Net mints minus burns, excluding treasury and locked balances.",
             "sql": """
                 SELECT
                     date,
                     SUM(total_supply_usd) AS usd
+                FROM solana.stablecoins.supply_distribution_daily
+                WHERE date >= DATE '{start_date}'
+                  AND date < DATEADD('day', 1, DATE '{end_date}')
+                GROUP BY ALL
+                ORDER BY date
+            """,
+        },
+        "stablecoin_circulating_supply": {
+            "date_field": "date",
+            "value_field": "usd",
+            "sql": """
+                SELECT
+                    date,
+                    SUM(circulating_supply_usd) AS usd
                 FROM solana.stablecoins.supply_distribution_daily
                 WHERE date >= DATE '{start_date}'
                   AND date < DATEADD('day', 1, DATE '{end_date}')
@@ -454,7 +467,8 @@ class Allium(BaseProvider):
             )
 
         stablecoin_metric_map = {
-            "stablecoin_supply": StablecoinMetricType.SUPPLY,
+            "stablecoin_total_supply": StablecoinMetricType.TOTAL_SUPPLY,
+            "stablecoin_circulating_supply": StablecoinMetricType.CIRCULATING_SUPPLY,
             "stablecoin_transfer_volume": StablecoinMetricType.TRANSFER_VOLUME,
             "stablecoin_transfer_count": StablecoinMetricType.TRANSFER_COUNT,
             "stablecoin_active_addresses": StablecoinMetricType.ACTIVE_ADDRESSES,

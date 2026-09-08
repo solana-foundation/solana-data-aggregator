@@ -38,18 +38,18 @@ def test_get_sol_price_live_api() -> None:
     assert metric.value > 0
 
 @pytest.mark.integration
-def test_get_stablecoin_supply_live_api() -> None:
-    """Stablecoin supply for Solana should be a positive value."""
+def test_get_stablecoin_circulating_supply_live_api() -> None:
+    """Stablecoin circulating supply for Solana should be a positive value."""
     provider = Birdeye(api_key=API_KEY)
     metric = provider.get_metric(
-        metric="stablecoin_supply",
+        metric="stablecoin_circulating_supply",
         date=_TODAY_STR,
         chain="solana",
     )
 
     assert metric is not None
     assert isinstance(metric, Stablecoin)
-    assert metric.metric_type == StablecoinMetricType.SUPPLY
+    assert metric.metric_type == StablecoinMetricType.CIRCULATING_SUPPLY
     assert metric.value > 0
 
 @pytest.mark.integration

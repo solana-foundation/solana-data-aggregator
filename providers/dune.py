@@ -19,7 +19,7 @@ class Dune(BaseProvider):
     """Fetch stablecoin metrics from the Dune SQL API."""
 
     METRIC_MAP: Dict[str, Dict[str, str]] = {
-        "stablecoin_supply": {
+        "stablecoin_total_supply": {
             "date_field": "day",
             "value_field": "total_supply_usd",
             "sql": """
@@ -31,6 +31,19 @@ class Dune(BaseProvider):
                   AND b.day BETWEEN DATE '{start_date}' AND DATE '{end_date}'
                 GROUP BY b.day
                 ORDER BY b.day ASC
+            """,
+        },
+        "stablecoin_circulating_supply": {
+            "date_field": "day",
+            "value_field": "circulating_supply_usd",
+            "sql": """
+                SELECT
+                    day,
+                    SUM(circulating_supply_usd) AS circulating_supply_usd
+                FROM solana_team.stablecoins_solana_circulating_supply
+                WHERE day BETWEEN DATE '{start_date}' AND DATE '{end_date}'
+                GROUP BY day
+                ORDER BY day ASC
             """,
         },
         "stablecoin_transfer_volume": {
@@ -433,7 +446,8 @@ class Dune(BaseProvider):
             )
 
         stablecoin_metric_map = {
-            "stablecoin_supply": StablecoinMetricType.SUPPLY,
+            "stablecoin_total_supply": StablecoinMetricType.TOTAL_SUPPLY,
+            "stablecoin_circulating_supply": StablecoinMetricType.CIRCULATING_SUPPLY,
             "stablecoin_transfer_volume": StablecoinMetricType.TRANSFER_VOLUME,
             "stablecoin_transfer_count": StablecoinMetricType.TRANSFER_COUNT,
             "stablecoin_active_addresses": StablecoinMetricType.ACTIVE_ADDRESSES,

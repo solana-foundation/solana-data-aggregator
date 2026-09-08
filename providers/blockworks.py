@@ -18,7 +18,7 @@ class Blockworks(BaseProvider):
     """Fetch stablecoin metrics from the Blockworks Research API."""
 
     METRIC_MAP: Dict[str, Dict[str, Any]] = {
-        "stablecoin_supply": {
+        "stablecoin_total_supply": {
             "endpoint": "/metrics/stablecoin-supply-total-usd",
             "params": {"project": "solana"},
             "data_path": ["solana"],
@@ -292,7 +292,7 @@ class Blockworks(BaseProvider):
             )
 
         stablecoin_metric_map = {
-            "stablecoin_supply": StablecoinMetricType.SUPPLY,
+            "stablecoin_total_supply": StablecoinMetricType.TOTAL_SUPPLY,
             "stablecoin_transfer_volume": StablecoinMetricType.TRANSFER_VOLUME,
             "stablecoin_transfer_count": StablecoinMetricType.TRANSFER_COUNT,
             "stablecoin_active_addresses": StablecoinMetricType.ACTIVE_ADDRESSES,
