@@ -40,10 +40,13 @@ TOKENS_DOCS_URL = "https://docs.bitquery.io/docs/trading/crypto-price-api/tokens
 # Wrapped SOL mint; the Price Index prices native SOL via the wSOL token.
 _WSOL_MINT = "So11111111111111111111111111111111111111112"
 
+# Trades queries filter on Block.Date (inclusive of both bounds) rather than
+# Block.Time: the date filter prunes the scan far better on the backend, which
+# keeps multi-day aggregations comfortably inside the server's query deadline.
 _TRADES_QUERY = """
 {{ Trading {{ Trades(
     where: {{
-      Block: {{Time: {{since: "{since}", till: "{till}"}}}},
+      Block: {{Date: {{since: "{start_date}", till: "{end_date}"}}}},
       Pair: {{Market: {{NetworkBid: {{is: "bid:solana"}}}}}}
     }}
     orderBy: {{ascending: Block_Date}}
@@ -63,7 +66,7 @@ _VOLUME_MAX_TRADE_USD = 10_000_000
 _TRADES_VOLUME_QUERY = """
 {{ Trading {{ Trades(
     where: {{
-      Block: {{Time: {{since: "{since}", till: "{till}"}}}},
+      Block: {{Date: {{since: "{start_date}", till: "{end_date}"}}}},
       Pair: {{Market: {{NetworkBid: {{is: "bid:solana"}}}}}},
       AmountsInUsd: {{Quote: {{gt: {min_trade_usd}, lt: {max_trade_usd}}}}}
     }}
@@ -109,13 +112,15 @@ class Bitquery(BaseProvider):
         "defi_dex_transactions": {
             "cube": "Trades",
             "query": _TRADES_QUERY,
-            "aggregate": "count(distinct: TransactionHeader_Hash)",
+            "aggregate": "uniq(of: TransactionHeader_Hash, method: approximate)",
             "cast": int,
             "methodology": (
                 "Number of distinct transactions containing at least one DEX "
                 "swap per day on Solana, from the Trading.Trades cube. Counting "
                 "distinct transaction hashes (rather than swap rows) keeps "
-                "multi-hop routed trades from being counted once per hop."
+                "multi-hop routed trades from being counted once per hop; the "
+                "approximate uniq (error well under 1%) avoids exact-distinct "
+                "query timeouts over multi-day windows."
             ),
             "methodology_url": TRADES_DOCS_URL,
         },
@@ -240,6 +245,10 @@ class Bitquery(BaseProvider):
 
         since, till = self._day_bounds(start_date, end_date)
         query = config["query"].format(
+            # Trades queries filter on Block.Date with both bounds inclusive;
+            # the Tokens price query still needs the [since, till) instants.
+            start_date=start_date,
+            end_date=end_date,
             since=since,
             till=till,
             aggregate=config.get("aggregate", ""),
