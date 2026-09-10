@@ -114,14 +114,30 @@ def test_fetch_rows_raises_on_graphql_errors() -> None:
         provider.fetch_rows("defi_dex_volume", _START, _END)
 
 
-def test_query_uses_inclusive_day_bounds() -> None:
+def test_trades_query_uses_inclusive_date_bounds() -> None:
     provider = _provider_with_response(_TRADES_RESPONSE)
     provider.fetch_rows("defi_dex_transactions", _START, _END)
 
     query = provider._session.post.call_args.kwargs["json"]["query"]
+    assert 'Block: {Date: {since: "2026-08-10", till: "2026-08-12"}}' in query
+    assert "bid:solana" in query
+
+
+def test_transactions_query_uses_approximate_uniq() -> None:
+    provider = _provider_with_response(_TRADES_RESPONSE)
+    provider.fetch_rows("defi_dex_transactions", _START, _END)
+
+    query = provider._session.post.call_args.kwargs["json"]["query"]
+    assert "uniq(of: TransactionHeader_Hash, method: approximate)" in query
+
+
+def test_price_query_uses_inclusive_day_instants() -> None:
+    provider = _provider_with_response(_TOKENS_RESPONSE)
+    provider.fetch_rows("overview_sol_price", _START, _END)
+
+    query = provider._session.post.call_args.kwargs["json"]["query"]
     assert '"2026-08-10T00:00:00Z"' in query
     assert '"2026-08-13T00:00:00Z"' in query  # end_date + 1 day
-    assert "bid:solana" in query
 
 
 def test_volume_query_applies_per_trade_usd_band() -> None:
