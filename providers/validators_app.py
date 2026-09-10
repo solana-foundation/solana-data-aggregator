@@ -111,7 +111,7 @@ class ValidatorsApp(BaseProvider):
             ]
             agg = config["validators_aggregate"]
             if agg == "sum_stake":
-                value = sum(v.get("active_stake", 0) for v in active) / 1e9
+                value = sum(v.get("active_stake") or 0 for v in active) / 1e9
             elif agg == "count":
                 value = float(len(active))
             else:  # top_3_asn_share
@@ -119,8 +119,8 @@ class ValidatorsApp(BaseProvider):
                 for v in active:
                     asn = v.get("autonomous_system_number")
                     if asn:
-                        asn_stake[asn] = asn_stake.get(asn, 0) + v.get(
-                            "active_stake", 0
+                        asn_stake[asn] = asn_stake.get(asn, 0) + (
+                            v.get("active_stake") or 0
                         )
                 sorted_stakes = sorted(asn_stake.values(), reverse=True)
                 total = sum(sorted_stakes)

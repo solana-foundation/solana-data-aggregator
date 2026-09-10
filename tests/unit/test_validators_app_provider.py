@@ -123,6 +123,26 @@ def test_fetch_rows_total_stake_sums_active_lamports_to_sol() -> None:
     assert rows[0]["date"] == TODAY
 
 
+def test_fetch_rows_total_stake_treats_null_active_stake_as_zero() -> None:
+    provider = _provider()
+    with_null = _VALIDATORS_RAW[:2] + [
+        {
+            "is_active": True,
+            "delinquent": False,
+            "active_stake": None,
+            "autonomous_system_number": 777,
+        }
+    ]
+    with (
+        patch.object(provider._session, "get", return_value=_mock_resp(with_null)),
+        _patch_today(),
+    ):
+        rows = provider.fetch_rows("network_total_stake", TODAY, TODAY)
+
+    # 1_000 + 500 + 0 (null) = 1_500 SOL
+    assert rows[0]["value"] == pytest.approx(1_500.0)
+
+
 def test_fetch_rows_total_stake_excludes_inactive_validators() -> None:
     provider = _provider()
     all_inactive = [
