@@ -337,7 +337,7 @@ class Allium(BaseProvider):
                 resp.raise_for_status()
                 return resp.json().get("data", [])
             except requests.exceptions.HTTPError as e:
-                if e.response.status_code in (503, 524) and attempt < retries - 1:
+                if e.response.status_code in (502, 503, 524) and attempt < retries - 1:
                     wait = 30 * (attempt + 1)
                     print(
                         f"  Timeout ({e.response.status_code}), retrying in {wait}s... "
