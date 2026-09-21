@@ -101,12 +101,9 @@ class Blockworks(BaseProvider):
             "value_field": "avg_total_cu_per_block",
         },
         "overview_app_revenue": {
-            "endpoint": "/metrics/app-revenue-total-usd",
-            "params": {"project": "solana"},
-            "use_date_params": True,
-            "data_path": ["solana"],
-            "date_field": "date",
-            "value_field": "value",
+            "chart_id": 1472,
+            "date_field": "dt",
+            "value_field": "revenue",
         },
     }
 
