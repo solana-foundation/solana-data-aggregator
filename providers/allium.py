@@ -270,6 +270,66 @@ class Allium(BaseProvider):
                 ORDER BY activity_date ASC
             """,
         },
+        "defi_lending_total_deposits": {
+            "date_field": "activity_date",
+            "value_field": "total_deposits_usd",
+            "sql": """
+                SELECT
+                    activity_date,
+                    SUM(supplied_amount_usd) AS total_deposits_usd
+                FROM crosschain.metrics.lending_overview
+                WHERE chain = 'solana'
+                  AND activity_date >= '{start_date}'
+                  AND activity_date < DATEADD('day', 1, '{end_date}')
+                GROUP BY 1
+                ORDER BY 1 ASC
+            """,
+        },
+        "defi_lending_active_loans": {
+            "date_field": "activity_date",
+            "value_field": "active_loans_usd",
+            "sql": """
+                SELECT
+                    activity_date,
+                    SUM(outstanding_loans_usd) AS active_loans_usd
+                FROM crosschain.metrics.lending_overview
+                WHERE chain = 'solana'
+                  AND activity_date >= '{start_date}'
+                  AND activity_date < DATEADD('day', 1, '{end_date}')
+                GROUP BY 1
+                ORDER BY 1 ASC
+            """,
+        },
+        "defi_lending_total_borrowed": {
+            "date_field": "activity_date",
+            "value_field": "total_borrowed_usd",
+            "sql": """
+                SELECT
+                    activity_date,
+                    SUM(outstanding_loans_usd) AS total_borrowed_usd
+                FROM crosschain.metrics.lending_overview
+                WHERE chain = 'solana'
+                  AND activity_date >= '{start_date}'
+                  AND activity_date < DATEADD('day', 1, '{end_date}')
+                GROUP BY 1
+                ORDER BY 1 ASC
+            """,
+        },
+        "defi_lending_protocol_count": {
+            "date_field": "activity_date",
+            "value_field": "number_of_protocols",
+            "sql": """
+                SELECT
+                    activity_date,
+                    COUNT(DISTINCT project) AS number_of_protocols
+                FROM crosschain.metrics.lending_overview
+                WHERE chain = 'solana'
+                  AND activity_date >= '{start_date}'
+                  AND activity_date < DATEADD('day', 1, '{end_date}')
+                GROUP BY 1
+                ORDER BY 1 ASC
+            """,
+        },
         "overview_compute_units": {
             "date_field": "date",
             "value_field": "avg_compute_units_per_block",
@@ -458,6 +518,10 @@ class Allium(BaseProvider):
             "defi_dex_transactions": DefiMetricType.DEX_TRANSACTIONS,
             "defi_dex_traders": DefiMetricType.DEX_TRADERS,
             "defi_dex_count": DefiMetricType.DEX_COUNT,
+            "defi_lending_total_deposits": DefiMetricType.LENDING_TOTAL_DEPOSITS,
+            "defi_lending_active_loans": DefiMetricType.LENDING_ACTIVE_LOANS,
+            "defi_lending_total_borrowed": DefiMetricType.LENDING_TOTAL_BORROWED,
+            "defi_lending_protocol_count": DefiMetricType.LENDING_PROTOCOL_COUNT,
         }
         if metric in defi_metric_map:
             return Defi.from_metric_type(
