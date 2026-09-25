@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from metrics.defi import Defi, DefiMetricType
 from metrics.network import Network, NetworkMetricType
 from metrics.overview import Overview, OverviewMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
@@ -146,6 +147,36 @@ def test_overview_metrics_map_to_their_metric_type(
     mock_factory.assert_called_once()
     assert mock_factory.call_args.kwargs["metric_type"] == metric_type
     assert mock_factory.call_args.kwargs["value"] == value
+
+
+@pytest.mark.parametrize(
+    ("metric", "metric_type"),
+    [
+        ("defi_lending_active_loans", DefiMetricType.LENDING_ACTIVE_LOANS),
+        ("defi_lending_total_borrowed", DefiMetricType.LENDING_TOTAL_BORROWED),
+    ],
+)
+def test_lending_metrics_read_ecosystem_active_loans(
+    metric: str, metric_type: DefiMetricType
+) -> None:
+    provider = TokenTerminal(api_key="test-token-terminal-key")
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = [
+        {"timestamp": "2026-09-01T00:00:00.000Z", "ecosystem_active_loans": 2_817_988_030.5}
+    ]
+    mock_resp.raise_for_status = MagicMock()
+    sentinel_metric = object()
+
+    with (
+        patch.object(provider._session, "get", return_value=mock_resp) as mock_get,
+        patch.object(Defi, "from_metric_type", return_value=sentinel_metric) as mock_factory,
+    ):
+        result = provider.get_metric(metric, "2026-09-01", "solana")
+
+    assert mock_get.call_args.kwargs["params"]["metric_ids"] == "ecosystem_active_loans"
+    assert result is sentinel_metric
+    assert mock_factory.call_args.kwargs["metric_type"] == metric_type
+    assert mock_factory.call_args.kwargs["value"] == 2_817_988_030.5
 
 
 def test_every_supported_metric_has_a_metric_type() -> None:
