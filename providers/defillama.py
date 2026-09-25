@@ -53,7 +53,26 @@ class DefiLlama(BaseProvider):
             },
             "fees_overview": True,
         },
+        "defi_lending_total_deposits": {
+            "lending_field": "deposits",
+            "methodology": "Solana TVL plus Solana borrowed, summed across DefiLlama Lending-category protocols.",
+        },
+        "defi_lending_active_loans": {
+            "lending_field": "borrowed",
+            "methodology": "Solana borrowed balance, summed across DefiLlama Lending-category protocols.",
+        },
+        "defi_lending_total_borrowed": {
+            "lending_field": "borrowed",
+            "methodology": "Solana borrowed balance, summed across DefiLlama Lending-category protocols; same source as active loans.",
+        },
+        "defi_lending_protocol_count": {
+            "lending_field": "protocol_count",
+            "methodology": "DefiLlama Lending-category protocols with non-zero Solana deposits that day.",
+        },
     }
+
+    LENDING_CATEGORY = "Lending"
+    LENDING_CHAIN = "Solana"
 
     BASE_URL = "https://pro-api.llama.fi"
 
@@ -65,6 +84,7 @@ class DefiLlama(BaseProvider):
             api_key=resolved_api_key,
         )
         self._session = requests.Session()
+        self._lending_daily: Optional[Dict[str, Dict[str, float]]] = None
 
     # -- private helpers ----------------------------------------------------
 
@@ -74,6 +94,51 @@ class DefiLlama(BaseProvider):
         resp = self._session.get(url, params=params or {}, timeout=30)
         resp.raise_for_status()
         return resp.json()
+
+    def _fetch_lending_daily(self) -> Dict[str, Dict[str, float]]:
+        """Aggregate Solana lending balances per day across Lending-category protocols.
+
+        DefiLlama has no chain+category TVL chart, so this sums each protocol's
+        `Solana` (TVL, net of borrows) and `Solana-borrowed` series from
+        /api/protocol/{slug}. Cached on the instance since all four lending
+        metrics share the same ~30 protocol calls.
+        """
+        if self._lending_daily is not None:
+            return self._lending_daily
+
+        protocols = self._get(f"{self.base_url}/api/protocols")
+        slugs = [
+            p["slug"]
+            for p in protocols
+            if p.get("category") == self.LENDING_CATEGORY
+            and self.LENDING_CHAIN in (p.get("chains") or [])
+        ]
+
+        daily: Dict[str, Dict[str, float]] = {}
+        for slug in slugs:
+            chain_tvls = self._get(f"{self.base_url}/api/protocol/{slug}").get("chainTvls", {})
+            protocol_day: Dict[str, Dict[str, float]] = {}
+            for series_key, field in (
+                (self.LENDING_CHAIN, "tvl"),
+                (f"{self.LENDING_CHAIN}-borrowed", "borrowed"),
+            ):
+                for entry in chain_tvls.get(series_key, {}).get("tvl", []):
+                    # Series end with an intraday "now" point; keep the day's first (00:00 UTC) snapshot
+                    day = protocol_day.setdefault(self._ts_to_date(int(entry["date"])), {})
+                    day.setdefault(field, float(entry.get("totalLiquidityUSD") or 0))
+
+            for row_date, values in protocol_day.items():
+                deposits = values.get("tvl", 0.0) + values.get("borrowed", 0.0)
+                agg = daily.setdefault(
+                    row_date, {"deposits": 0.0, "borrowed": 0.0, "protocol_count": 0.0}
+                )
+                agg["deposits"] += deposits
+                agg["borrowed"] += values.get("borrowed", 0.0)
+                if deposits > 0:
+                    agg["protocol_count"] += 1
+
+        self._lending_daily = daily
+        return daily
 
     # -- BaseProvider interface ---------------------------------------------
 
@@ -140,6 +205,13 @@ class DefiLlama(BaseProvider):
                 if not (start_date <= row_date <= end_date):
                     continue
                 result.append({"date": row_date, "value": float(entry["price"])})
+            return result
+
+        if config.get("lending_field"):
+            for row_date, values in sorted(self._fetch_lending_daily().items()):
+                if not (start_date <= row_date <= end_date):
+                    continue
+                result.append({"date": row_date, "value": values[config["lending_field"]]})
             return result
 
         if config.get("fees_overview"):
@@ -214,6 +286,10 @@ class DefiLlama(BaseProvider):
         defi_metric_map = {
             "defi_dex_volume": DefiMetricType.DEX_VOLUME,
             "defi_dex_count": DefiMetricType.DEX_COUNT,
+            "defi_lending_total_deposits": DefiMetricType.LENDING_TOTAL_DEPOSITS,
+            "defi_lending_active_loans": DefiMetricType.LENDING_ACTIVE_LOANS,
+            "defi_lending_total_borrowed": DefiMetricType.LENDING_TOTAL_BORROWED,
+            "defi_lending_protocol_count": DefiMetricType.LENDING_PROTOCOL_COUNT,
         }
         if metric in defi_metric_map:
             return Defi.from_metric_type(
