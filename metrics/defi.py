@@ -18,7 +18,7 @@ class DefiMetricType(str, Enum):
     DEX_TRANSACTIONS = "dex_transactions"
     DEX_COUNT = "dex_count"
     LENDING_TOTAL_DEPOSITS = "lending_total_deposits"
-    LENDING_ACTIVE_LOANS = "lending_active_loans"
+    LENDING_UTILIZATION_RATE = "lending_utilization_rate"
     LENDING_TOTAL_BORROWED = "lending_total_borrowed"
     LENDING_PROTOCOL_COUNT = "lending_protocol_count"
 
@@ -49,10 +49,10 @@ _METRIC_METADATA: dict[DefiMetricType, dict[str, str]] = {
         "unit": "USD",
         "description": "Total USD value supplied to Solana lending protocols",
     },
-    DefiMetricType.LENDING_ACTIVE_LOANS: {
-        "name": "Lending Active Loans",
-        "unit": "USD",
-        "description": "USD value of outstanding loans on Solana lending protocols",
+    DefiMetricType.LENDING_UTILIZATION_RATE: {
+        "name": "Lending Utilization Rate",
+        "unit": "Percent",
+        "description": "Total borrowed divided by total deposits across Solana lending protocols, as a percentage (0-100)",
     },
     DefiMetricType.LENDING_TOTAL_BORROWED: {
         "name": "Lending Total Borrowed",

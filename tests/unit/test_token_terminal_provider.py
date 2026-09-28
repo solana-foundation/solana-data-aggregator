@@ -149,16 +149,7 @@ def test_overview_metrics_map_to_their_metric_type(
     assert mock_factory.call_args.kwargs["value"] == value
 
 
-@pytest.mark.parametrize(
-    ("metric", "metric_type"),
-    [
-        ("defi_lending_active_loans", DefiMetricType.LENDING_ACTIVE_LOANS),
-        ("defi_lending_total_borrowed", DefiMetricType.LENDING_TOTAL_BORROWED),
-    ],
-)
-def test_lending_metrics_read_ecosystem_active_loans(
-    metric: str, metric_type: DefiMetricType
-) -> None:
+def test_lending_total_borrowed_reads_ecosystem_active_loans() -> None:
     provider = TokenTerminal(api_key="test-token-terminal-key")
     mock_resp = MagicMock()
     mock_resp.json.return_value = [
@@ -171,11 +162,11 @@ def test_lending_metrics_read_ecosystem_active_loans(
         patch.object(provider._session, "get", return_value=mock_resp) as mock_get,
         patch.object(Defi, "from_metric_type", return_value=sentinel_metric) as mock_factory,
     ):
-        result = provider.get_metric(metric, "2026-09-01", "solana")
+        result = provider.get_metric("defi_lending_total_borrowed", "2026-09-01", "solana")
 
     assert mock_get.call_args.kwargs["params"]["metric_ids"] == "ecosystem_active_loans"
     assert result is sentinel_metric
-    assert mock_factory.call_args.kwargs["metric_type"] == metric_type
+    assert mock_factory.call_args.kwargs["metric_type"] == DefiMetricType.LENDING_TOTAL_BORROWED
     assert mock_factory.call_args.kwargs["value"] == 2_817_988_030.5
 
 

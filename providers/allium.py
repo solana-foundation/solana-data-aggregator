@@ -285,13 +285,13 @@ class Allium(BaseProvider):
                 ORDER BY 1 ASC
             """,
         },
-        "defi_lending_active_loans": {
+        "defi_lending_utilization_rate": {
             "date_field": "activity_date",
-            "value_field": "active_loans_usd",
+            "value_field": "utilization_rate_pct",
             "sql": """
                 SELECT
                     activity_date,
-                    SUM(outstanding_loans_usd) AS active_loans_usd
+                    SUM(outstanding_loans_usd) / NULLIF(SUM(supplied_amount_usd), 0) * 100 AS utilization_rate_pct
                 FROM crosschain.metrics.lending_overview
                 WHERE chain = 'solana'
                   AND activity_date >= '{start_date}'
@@ -519,7 +519,7 @@ class Allium(BaseProvider):
             "defi_dex_traders": DefiMetricType.DEX_TRADERS,
             "defi_dex_count": DefiMetricType.DEX_COUNT,
             "defi_lending_total_deposits": DefiMetricType.LENDING_TOTAL_DEPOSITS,
-            "defi_lending_active_loans": DefiMetricType.LENDING_ACTIVE_LOANS,
+            "defi_lending_utilization_rate": DefiMetricType.LENDING_UTILIZATION_RATE,
             "defi_lending_total_borrowed": DefiMetricType.LENDING_TOTAL_BORROWED,
             "defi_lending_protocol_count": DefiMetricType.LENDING_PROTOCOL_COUNT,
         }

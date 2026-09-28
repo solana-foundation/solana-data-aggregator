@@ -55,15 +55,12 @@ class DefiLlama(BaseProvider):
         },
         "defi_lending_total_deposits": {
             "lending_field": "deposits",
-            "methodology": "Solana TVL plus Solana borrowed, summed across DefiLlama Lending-category protocols.",
         },
-        "defi_lending_active_loans": {
-            "lending_field": "borrowed",
-            "methodology": "Solana borrowed balance, summed across DefiLlama Lending-category protocols.",
+        "defi_lending_utilization_rate": {
+            "lending_field": "utilization_rate",
         },
         "defi_lending_total_borrowed": {
             "lending_field": "borrowed",
-            "methodology": "Solana borrowed balance, summed across DefiLlama Lending-category protocols; same source as active loans.",
         },
         "defi_lending_protocol_count": {
             "lending_field": "protocol_count",
@@ -101,7 +98,8 @@ class DefiLlama(BaseProvider):
         DefiLlama has no chain+category TVL chart, so this sums each protocol's
         `Solana` (TVL, net of borrows) and `Solana-borrowed` series from
         /api/protocol/{slug}. Cached on the instance since all four lending
-        metrics share the same ~30 protocol calls.
+        metrics (utilization rate is derived from the same sums) share the
+        same ~30 protocol calls.
         """
         if self._lending_daily is not None:
             return self._lending_daily
@@ -136,6 +134,12 @@ class DefiLlama(BaseProvider):
                 agg["borrowed"] += values.get("borrowed", 0.0)
                 if deposits > 0:
                     agg["protocol_count"] += 1
+
+        # Ratio of the Solana-wide sums (weighted by size), not an average of per-protocol rates.
+        # Days with no deposits get no utilization_rate and are skipped by fetch_rows.
+        for agg in daily.values():
+            if agg["deposits"] > 0:
+                agg["utilization_rate"] = agg["borrowed"] / agg["deposits"] * 100
 
         self._lending_daily = daily
         return daily
@@ -209,9 +213,10 @@ class DefiLlama(BaseProvider):
 
         if config.get("lending_field"):
             for row_date, values in sorted(self._fetch_lending_daily().items()):
-                if not (start_date <= row_date <= end_date):
+                value = values.get(config["lending_field"])
+                if value is None or not (start_date <= row_date <= end_date):
                     continue
-                result.append({"date": row_date, "value": values[config["lending_field"]]})
+                result.append({"date": row_date, "value": value})
             return result
 
         if config.get("fees_overview"):
@@ -287,7 +292,7 @@ class DefiLlama(BaseProvider):
             "defi_dex_volume": DefiMetricType.DEX_VOLUME,
             "defi_dex_count": DefiMetricType.DEX_COUNT,
             "defi_lending_total_deposits": DefiMetricType.LENDING_TOTAL_DEPOSITS,
-            "defi_lending_active_loans": DefiMetricType.LENDING_ACTIVE_LOANS,
+            "defi_lending_utilization_rate": DefiMetricType.LENDING_UTILIZATION_RATE,
             "defi_lending_total_borrowed": DefiMetricType.LENDING_TOTAL_BORROWED,
             "defi_lending_protocol_count": DefiMetricType.LENDING_PROTOCOL_COUNT,
         }

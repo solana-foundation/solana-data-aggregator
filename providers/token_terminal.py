@@ -107,11 +107,6 @@ class TokenTerminal(BaseProvider):
             "value_field": "ecosystem_dex_trading_volume",
             "methodology": "DEX trade volume varies by indexed venues, pricing, and filtering methodology.",
         },
-        "defi_lending_active_loans": {
-            "metric_id": "ecosystem_active_loans",
-            "date_field": "timestamp",
-            "value_field": "ecosystem_active_loans",
-        },
         "defi_lending_total_borrowed": {
             "metric_id": "ecosystem_active_loans",
             "date_field": "timestamp",
@@ -148,7 +143,6 @@ class TokenTerminal(BaseProvider):
 
     _DEFI_METRIC_TYPE_MAP: Dict[str, DefiMetricType] = {
         "defi_dex_volume": DefiMetricType.DEX_VOLUME,
-        "defi_lending_active_loans": DefiMetricType.LENDING_ACTIVE_LOANS,
         "defi_lending_total_borrowed": DefiMetricType.LENDING_TOTAL_BORROWED,
     }
 
