@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 
 from metrics.defi import Defi, DefiMetricType
+from metrics.lending import Lending, LendingMetricType
 from metrics.overview import Overview, OverviewMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
 from providers.base import BaseProvider
@@ -106,24 +107,24 @@ class Blockworks(BaseProvider):
             "value_field": "revenue",
         },
         # Charts 7653 and 7655 return the same daily lending table (Kamino + Jupiter Lend)
-        "defi_lending_total_deposits": {
+        "lending_total_deposits": {
             "chart_id": 7653,
             "date_field": "dt",
             "value_field": "total_deposit",
         },
-        "defi_lending_total_borrowed": {
+        "lending_total_borrowed": {
             "chart_id": 7655,
             "date_field": "dt",
             "value_field": "total_borrow",
         },
-        "defi_lending_utilization_rate": {
+        "lending_utilization_rate": {
             "chart_id": 7653,
             "date_field": "dt",
             "value_field": "total_dep_utilization",
             # Blockworks reports a 0-1 ratio; stored as a 0-100 percentage
             "value_scale": 100,
         },
-        "defi_lending_protocol_count": {
+        "lending_protocol_count": {
             "chart_id": 7653,
             "date_field": "dt",
             # One protocol_deposit_<protocol> column per protocol; "_other" is a catch-all bucket
@@ -303,7 +304,7 @@ class Blockworks(BaseProvider):
 
     def get_metric(
         self, metric: str, date: str, chain: str
-    ) -> Stablecoin | Overview | Defi | None:
+    ) -> Stablecoin | Overview | Defi | Lending | None:
         """Fetch one metric value and return it as a typed metric model."""
         rows = self.fetch_rows(metric, date, date)
         if not rows:
@@ -332,14 +333,23 @@ class Blockworks(BaseProvider):
         defi_metric_map = {
             "defi_dex_volume": DefiMetricType.DEX_VOLUME,
             "defi_dex_count": DefiMetricType.DEX_COUNT,
-            "defi_lending_total_deposits": DefiMetricType.LENDING_TOTAL_DEPOSITS,
-            "defi_lending_total_borrowed": DefiMetricType.LENDING_TOTAL_BORROWED,
-            "defi_lending_utilization_rate": DefiMetricType.LENDING_UTILIZATION_RATE,
-            "defi_lending_protocol_count": DefiMetricType.LENDING_PROTOCOL_COUNT,
         }
         if metric in defi_metric_map:
             return Defi.from_metric_type(
                 metric_type=defi_metric_map[metric],
+                date=parsed_date,
+                value=value,
+            )
+
+        lending_metric_map = {
+            "lending_total_deposits": LendingMetricType.TOTAL_DEPOSITS,
+            "lending_total_borrowed": LendingMetricType.TOTAL_BORROWED,
+            "lending_utilization_rate": LendingMetricType.UTILIZATION_RATE,
+            "lending_protocol_count": LendingMetricType.PROTOCOL_COUNT,
+        }
+        if metric in lending_metric_map:
+            return Lending.from_metric_type(
+                metric_type=lending_metric_map[metric],
                 date=parsed_date,
                 value=value,
             )

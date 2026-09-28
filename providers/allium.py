@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from metrics.defi import Defi, DefiMetricType
+from metrics.lending import Lending, LendingMetricType
 from metrics.overview import Overview, OverviewMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
 from providers.base import BaseProvider
@@ -270,7 +271,7 @@ class Allium(BaseProvider):
                 ORDER BY activity_date ASC
             """,
         },
-        "defi_lending_total_deposits": {
+        "lending_total_deposits": {
             "date_field": "activity_date",
             "value_field": "total_deposits_usd",
             "sql": """
@@ -285,7 +286,7 @@ class Allium(BaseProvider):
                 ORDER BY 1 ASC
             """,
         },
-        "defi_lending_utilization_rate": {
+        "lending_utilization_rate": {
             "date_field": "activity_date",
             "value_field": "utilization_rate_pct",
             "sql": """
@@ -300,7 +301,7 @@ class Allium(BaseProvider):
                 ORDER BY 1 ASC
             """,
         },
-        "defi_lending_total_borrowed": {
+        "lending_total_borrowed": {
             "date_field": "activity_date",
             "value_field": "total_borrowed_usd",
             "sql": """
@@ -315,7 +316,7 @@ class Allium(BaseProvider):
                 ORDER BY 1 ASC
             """,
         },
-        "defi_lending_protocol_count": {
+        "lending_protocol_count": {
             "date_field": "activity_date",
             "value_field": "number_of_protocols",
             "sql": """
@@ -486,7 +487,7 @@ class Allium(BaseProvider):
 
     def get_metric(
         self, metric: str, date: str, chain: str
-    ) -> Stablecoin | Overview | Defi | None:
+    ) -> Stablecoin | Overview | Defi | Lending | None:
         """Fetch one metric value and return it as a typed metric model."""
         rows = self.fetch_rows(metric, date, date)
         if not rows:
@@ -518,14 +519,23 @@ class Allium(BaseProvider):
             "defi_dex_transactions": DefiMetricType.DEX_TRANSACTIONS,
             "defi_dex_traders": DefiMetricType.DEX_TRADERS,
             "defi_dex_count": DefiMetricType.DEX_COUNT,
-            "defi_lending_total_deposits": DefiMetricType.LENDING_TOTAL_DEPOSITS,
-            "defi_lending_utilization_rate": DefiMetricType.LENDING_UTILIZATION_RATE,
-            "defi_lending_total_borrowed": DefiMetricType.LENDING_TOTAL_BORROWED,
-            "defi_lending_protocol_count": DefiMetricType.LENDING_PROTOCOL_COUNT,
         }
         if metric in defi_metric_map:
             return Defi.from_metric_type(
                 metric_type=defi_metric_map[metric],
+                date=parsed_date,
+                value=value,
+            )
+
+        lending_metric_map = {
+            "lending_total_deposits": LendingMetricType.TOTAL_DEPOSITS,
+            "lending_utilization_rate": LendingMetricType.UTILIZATION_RATE,
+            "lending_total_borrowed": LendingMetricType.TOTAL_BORROWED,
+            "lending_protocol_count": LendingMetricType.PROTOCOL_COUNT,
+        }
+        if metric in lending_metric_map:
+            return Lending.from_metric_type(
+                metric_type=lending_metric_map[metric],
                 date=parsed_date,
                 value=value,
             )

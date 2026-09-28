@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from metrics.defi import Defi, DefiMetricType
+from metrics.lending import Lending, LendingMetricType
 from metrics.network import Network, NetworkMetricType
 from metrics.overview import Overview, OverviewMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
@@ -107,7 +108,7 @@ class TokenTerminal(BaseProvider):
             "value_field": "ecosystem_dex_trading_volume",
             "methodology": "DEX trade volume varies by indexed venues, pricing, and filtering methodology.",
         },
-        "defi_lending_total_borrowed": {
+        "lending_total_borrowed": {
             "metric_id": "ecosystem_active_loans",
             "date_field": "timestamp",
             "value_field": "ecosystem_active_loans",
@@ -143,7 +144,10 @@ class TokenTerminal(BaseProvider):
 
     _DEFI_METRIC_TYPE_MAP: Dict[str, DefiMetricType] = {
         "defi_dex_volume": DefiMetricType.DEX_VOLUME,
-        "defi_lending_total_borrowed": DefiMetricType.LENDING_TOTAL_BORROWED,
+    }
+
+    _LENDING_METRIC_TYPE_MAP: Dict[str, LendingMetricType] = {
+        "lending_total_borrowed": LendingMetricType.TOTAL_BORROWED,
     }
 
     _NETWORK_METRIC_TYPE_MAP: Dict[str, NetworkMetricType] = {
@@ -227,7 +231,7 @@ class TokenTerminal(BaseProvider):
 
     def get_metric(
         self, metric: str, date: str, chain: str
-    ) -> Stablecoin | Overview | Defi | Network | None:
+    ) -> Stablecoin | Overview | Defi | Lending | Network | None:
         """Fetch one metric value and return it as a typed metric model."""
         rows = self.fetch_rows(metric, date, date)
         if not rows:
@@ -251,6 +255,12 @@ class TokenTerminal(BaseProvider):
         if defi_type is not None:
             return Defi.from_metric_type(
                 metric_type=defi_type, date=parsed_date, value=value
+            )
+
+        lending_type = self._LENDING_METRIC_TYPE_MAP.get(metric)
+        if lending_type is not None:
+            return Lending.from_metric_type(
+                metric_type=lending_type, date=parsed_date, value=value
             )
 
         network_type = self._NETWORK_METRIC_TYPE_MAP.get(metric)

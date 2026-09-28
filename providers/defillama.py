@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from metrics.defi import Defi, DefiMetricType
+from metrics.lending import Lending, LendingMetricType
 from metrics.overview import Overview, OverviewMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
 from providers.base import BaseProvider
@@ -53,16 +54,16 @@ class DefiLlama(BaseProvider):
             },
             "fees_overview": True,
         },
-        "defi_lending_total_deposits": {
+        "lending_total_deposits": {
             "lending_field": "deposits",
         },
-        "defi_lending_utilization_rate": {
+        "lending_utilization_rate": {
             "lending_field": "utilization_rate",
         },
-        "defi_lending_total_borrowed": {
+        "lending_total_borrowed": {
             "lending_field": "borrowed",
         },
-        "defi_lending_protocol_count": {
+        "lending_protocol_count": {
             "lending_field": "protocol_count",
             "methodology": "DefiLlama Lending-category protocols with non-zero Solana deposits that day.",
         },
@@ -268,7 +269,7 @@ class DefiLlama(BaseProvider):
 
     def get_metric(
         self, metric: str, date: str, chain: str
-    ) -> Defi | Overview | Stablecoin | None:
+    ) -> Defi | Lending | Overview | Stablecoin | None:
         """Fetch one metric value and return it as a typed metric model."""
         rows = self.fetch_rows(metric, date, date)
         if not rows:
@@ -291,14 +292,23 @@ class DefiLlama(BaseProvider):
         defi_metric_map = {
             "defi_dex_volume": DefiMetricType.DEX_VOLUME,
             "defi_dex_count": DefiMetricType.DEX_COUNT,
-            "defi_lending_total_deposits": DefiMetricType.LENDING_TOTAL_DEPOSITS,
-            "defi_lending_utilization_rate": DefiMetricType.LENDING_UTILIZATION_RATE,
-            "defi_lending_total_borrowed": DefiMetricType.LENDING_TOTAL_BORROWED,
-            "defi_lending_protocol_count": DefiMetricType.LENDING_PROTOCOL_COUNT,
         }
         if metric in defi_metric_map:
             return Defi.from_metric_type(
                 metric_type=defi_metric_map[metric],
+                date=parsed_date,
+                value=value,
+            )
+
+        lending_metric_map = {
+            "lending_total_deposits": LendingMetricType.TOTAL_DEPOSITS,
+            "lending_utilization_rate": LendingMetricType.UTILIZATION_RATE,
+            "lending_total_borrowed": LendingMetricType.TOTAL_BORROWED,
+            "lending_protocol_count": LendingMetricType.PROTOCOL_COUNT,
+        }
+        if metric in lending_metric_map:
+            return Lending.from_metric_type(
+                metric_type=lending_metric_map[metric],
                 date=parsed_date,
                 value=value,
             )

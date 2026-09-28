@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from metrics.defi import Defi, DefiMetricType
+from metrics.lending import Lending, LendingMetricType
 from metrics.network import Network, NetworkMetricType
 from metrics.overview import Overview, OverviewMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
@@ -160,13 +160,13 @@ def test_lending_total_borrowed_reads_ecosystem_active_loans() -> None:
 
     with (
         patch.object(provider._session, "get", return_value=mock_resp) as mock_get,
-        patch.object(Defi, "from_metric_type", return_value=sentinel_metric) as mock_factory,
+        patch.object(Lending, "from_metric_type", return_value=sentinel_metric) as mock_factory,
     ):
-        result = provider.get_metric("defi_lending_total_borrowed", "2026-09-01", "solana")
+        result = provider.get_metric("lending_total_borrowed", "2026-09-01", "solana")
 
     assert mock_get.call_args.kwargs["params"]["metric_ids"] == "ecosystem_active_loans"
     assert result is sentinel_metric
-    assert mock_factory.call_args.kwargs["metric_type"] == DefiMetricType.LENDING_TOTAL_BORROWED
+    assert mock_factory.call_args.kwargs["metric_type"] == LendingMetricType.TOTAL_BORROWED
     assert mock_factory.call_args.kwargs["value"] == 2_817_988_030.5
 
 
@@ -176,6 +176,7 @@ def test_every_supported_metric_has_a_metric_type() -> None:
         set(TokenTerminal._OVERVIEW_METRIC_TYPE_MAP)
         | set(TokenTerminal._STABLECOIN_METRIC_TYPE_MAP)
         | set(TokenTerminal._DEFI_METRIC_TYPE_MAP)
+        | set(TokenTerminal._LENDING_METRIC_TYPE_MAP)
         | set(TokenTerminal._NETWORK_METRIC_TYPE_MAP)
     )
     assert set(TokenTerminal.METRIC_MAP) == mapped

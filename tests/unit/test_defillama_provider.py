@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from metrics.defi import Defi, DefiMetricType
+from metrics.lending import Lending, LendingMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
 from providers.defillama import DefiLlama
 
@@ -114,10 +114,10 @@ def test_fetch_rows_lending_aggregates_solana_lending_protocols() -> None:
     provider = DefiLlama()
 
     with patch.object(provider._session, "get", side_effect=_lending_get) as mock_get:
-        deposits = provider.fetch_rows("defi_lending_total_deposits", "2026-01-01", "2026-01-02")
-        borrowed = provider.fetch_rows("defi_lending_total_borrowed", "2026-01-01", "2026-01-02")
-        utilization = provider.fetch_rows("defi_lending_utilization_rate", "2026-01-01", "2026-01-02")
-        count = provider.fetch_rows("defi_lending_protocol_count", "2026-01-01", "2026-01-02")
+        deposits = provider.fetch_rows("lending_total_deposits", "2026-01-01", "2026-01-02")
+        borrowed = provider.fetch_rows("lending_total_borrowed", "2026-01-01", "2026-01-02")
+        utilization = provider.fetch_rows("lending_utilization_rate", "2026-01-01", "2026-01-02")
+        count = provider.fetch_rows("lending_protocol_count", "2026-01-01", "2026-01-02")
 
     # Deposits = TVL + borrowed; the intraday point on 2026-01-02 is ignored
     assert deposits == [
@@ -144,8 +144,8 @@ def test_fetch_rows_lending_utilization_skips_days_without_deposits() -> None:
     provider = DefiLlama()
 
     with patch.object(provider._session, "get", side_effect=_lending_get):
-        deposits = provider.fetch_rows("defi_lending_total_deposits", "2025-12-31", "2025-12-31")
-        utilization = provider.fetch_rows("defi_lending_utilization_rate", "2025-12-31", "2025-12-31")
+        deposits = provider.fetch_rows("lending_total_deposits", "2025-12-31", "2025-12-31")
+        utilization = provider.fetch_rows("lending_utilization_rate", "2025-12-31", "2025-12-31")
 
     assert deposits == [{"date": "2025-12-31", "value": 0.0}]
     assert utilization == []
@@ -157,12 +157,12 @@ def test_get_metric_lending_returns_defi_metric() -> None:
 
     with (
         patch.object(provider._session, "get", side_effect=_lending_get),
-        patch.object(Defi, "from_metric_type", return_value=sentinel_metric) as mock_factory,
+        patch.object(Lending, "from_metric_type", return_value=sentinel_metric) as mock_factory,
     ):
-        result = provider.get_metric("defi_lending_total_deposits", "2026-01-01", "solana")
+        result = provider.get_metric("lending_total_deposits", "2026-01-01", "solana")
 
     assert result is sentinel_metric
-    assert mock_factory.call_args.kwargs["metric_type"] == DefiMetricType.LENDING_TOTAL_DEPOSITS
+    assert mock_factory.call_args.kwargs["metric_type"] == LendingMetricType.TOTAL_DEPOSITS
     assert mock_factory.call_args.kwargs["value"] == 1_400.0
 
 

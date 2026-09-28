@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from metrics.defi import Defi, DefiMetricType
+from metrics.lending import Lending, LendingMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
 from providers.blockworks import Blockworks
 
@@ -70,10 +70,10 @@ def test_fetch_rows_lending_metrics_read_chart_columns() -> None:
     provider = Blockworks(api_key="key")
 
     with patch.object(provider._session, "get", return_value=_chart_resp(_LENDING_ROWS)) as mock_get:
-        deposits = provider.fetch_rows("defi_lending_total_deposits", "2026-09-27", "2026-09-27")
-        utilization = provider.fetch_rows("defi_lending_utilization_rate", "2026-09-26", "2026-09-27")
-        borrowed = provider.fetch_rows("defi_lending_total_borrowed", "2026-09-27", "2026-09-27")
-        count = provider.fetch_rows("defi_lending_protocol_count", "2026-09-26", "2026-09-27")
+        deposits = provider.fetch_rows("lending_total_deposits", "2026-09-27", "2026-09-27")
+        utilization = provider.fetch_rows("lending_utilization_rate", "2026-09-26", "2026-09-27")
+        borrowed = provider.fetch_rows("lending_total_borrowed", "2026-09-27", "2026-09-27")
+        count = provider.fetch_rows("lending_protocol_count", "2026-09-26", "2026-09-27")
 
     assert deposits == [{"date": "2026-09-27", "value": 5_171_000_000.0}]
     # protocol_deposit_* columns with deposits > 0, excluding the "other" bucket
@@ -95,10 +95,10 @@ def test_get_metric_lending_utilization_returns_defi_metric() -> None:
 
     with (
         patch.object(provider._session, "get", return_value=_chart_resp(_LENDING_ROWS)),
-        patch.object(Defi, "from_metric_type", return_value=sentinel_metric) as mock_factory,
+        patch.object(Lending, "from_metric_type", return_value=sentinel_metric) as mock_factory,
     ):
-        result = provider.get_metric("defi_lending_utilization_rate", "2026-09-27", "solana")
+        result = provider.get_metric("lending_utilization_rate", "2026-09-27", "solana")
 
     assert result is sentinel_metric
-    assert mock_factory.call_args.kwargs["metric_type"] == DefiMetricType.LENDING_UTILIZATION_RATE
+    assert mock_factory.call_args.kwargs["metric_type"] == LendingMetricType.UTILIZATION_RATE
     assert mock_factory.call_args.kwargs["value"] == pytest.approx(39.05)
