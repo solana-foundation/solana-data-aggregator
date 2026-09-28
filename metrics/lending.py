@@ -21,22 +21,22 @@ class LendingMetricType(str, Enum):
 
 _METRIC_METADATA: dict[LendingMetricType, dict[str, str]] = {
     LendingMetricType.TOTAL_DEPOSITS: {
-        "name": "Lending Total Deposits",
+        "name": "Total Deposits",
         "unit": "USD",
         "description": "Total USD value supplied to Solana lending protocols",
     },
     LendingMetricType.UTILIZATION_RATE: {
-        "name": "Lending Utilization Rate",
+        "name": "Utilization Rate",
         "unit": "Percent",
         "description": "Total borrowed divided by total deposits across Solana lending protocols, as a percentage (0-100)",
     },
     LendingMetricType.TOTAL_BORROWED: {
-        "name": "Lending Total Borrowed",
+        "name": "Total Borrowed",
         "unit": "USD",
         "description": "Total USD value borrowed from Solana lending protocols",
     },
     LendingMetricType.PROTOCOL_COUNT: {
-        "name": "Lending Protocol Count",
+        "name": "Protocol Count",
         "unit": "Count",
         "description": "Number of unique lending protocols on Solana",
     },
