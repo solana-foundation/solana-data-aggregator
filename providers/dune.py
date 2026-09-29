@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from metrics.defi import Defi, DefiMetricType
+from metrics.network import Network, NetworkMetricType
 from metrics.overview import Overview, OverviewMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
 from providers.base import BaseProvider
@@ -246,6 +247,19 @@ class Dune(BaseProvider):
                 ORDER BY block_date ASC
             """,
         },
+        "network_avg_tps": {
+            "date_field": "block_date",
+            "value_field": "avg_tps",
+            "sql": """
+                SELECT
+                    date AS block_date,
+                    CAST(SUM(total_non_vote_transactions) AS DOUBLE) / 86400 AS avg_tps
+                FROM solana.blocks
+                WHERE date BETWEEN DATE '{start_date}' AND DATE '{end_date}'
+                GROUP BY 1
+                ORDER BY block_date ASC
+            """,
+        },
         "defi_dex_traders": {
             "date_field": "day",
             "value_field": "unique_traders",
@@ -405,7 +419,7 @@ class Dune(BaseProvider):
 
     def get_metric(
         self, metric: str, date: str, chain: str
-    ) -> Stablecoin | Overview | Defi | None:
+    ) -> Stablecoin | Overview | Defi | Network | None:
         """Fetch one metric value and return it as a typed metric model."""
         rows = self.fetch_rows(metric, date, date)
         if not rows:
@@ -441,6 +455,16 @@ class Dune(BaseProvider):
         if metric in defi_metric_map:
             return Defi.from_metric_type(
                 metric_type=defi_metric_map[metric],
+                date=parsed_date,
+                value=value,
+            )
+
+        network_metric_map = {
+            "network_avg_tps": NetworkMetricType.AVG_TPS,
+        }
+        if metric in network_metric_map:
+            return Network.from_metric_type(
+                metric_type=network_metric_map[metric],
                 date=parsed_date,
                 value=value,
             )
