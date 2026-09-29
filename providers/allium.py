@@ -333,19 +333,17 @@ class Allium(BaseProvider):
             """,
         },
         "network_avg_tps": {
-            "date_field": "day",
+            "date_field": "activity_date",
             "value_field": "avg_tps",
-            "chunked": True,
-            "methodology": "Successful, non-voting transactions per day divided by 86,400 seconds.",
+            "methodology": "Non-vote transactions (successful + failed) per day divided by 86,400 seconds.",
             "sql": """
                 SELECT
-                    block_timestamp::date AS day,
-                    COUNT(*) / 86400.0 AS avg_tps
-                FROM solana.raw.success_nonvoting_transactions
-                WHERE block_timestamp >= '{start_date}'
-                  AND block_timestamp <  DATEADD('day', 1, '{end_date}')
-                GROUP BY 1
-                ORDER BY 1 ASC
+                    activity_date,
+                    (success_non_voting_tx_count + failed_non_voting_tx_count) / 86400.0 AS avg_tps
+                FROM solana.metrics.overview
+                WHERE activity_date >= '{start_date}'
+                  AND activity_date < DATEADD('day', 1, '{end_date}')
+                ORDER BY activity_date ASC
             """,
         },
         "overview_compute_units": {

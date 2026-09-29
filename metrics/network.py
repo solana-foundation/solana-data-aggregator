@@ -44,7 +44,7 @@ _METRIC_METADATA: dict[NetworkMetricType, dict[str, str]] = {
     NetworkMetricType.AVG_TPS: {
         "name": "Average TPS",
         "unit": "TPS",
-        "description": "Daily average transactions per second on Solana (successful, non-voting transactions / 86,400)",
+        "description": "Daily average transactions per second on Solana (non-vote transactions, successful and failed, / 86,400)",
     },
 }
 
