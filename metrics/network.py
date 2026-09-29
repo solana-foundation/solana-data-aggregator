@@ -17,6 +17,7 @@ class NetworkMetricType(str, Enum):
     SOL_PRICE = "sol_price"
     VALIDATOR_COUNT = "validator_count"
     TOP_3_ASN_SHARE = "top_3_asn_share"
+    AVG_TPS = "avg_tps"
 
 
 _METRIC_METADATA: dict[NetworkMetricType, dict[str, str]] = {
@@ -39,6 +40,11 @@ _METRIC_METADATA: dict[NetworkMetricType, dict[str, str]] = {
         "name": "Top 3 ASN Share",
         "unit": "Percent",
         "description": "Percentage of stake concentrated in the top 3 ASNs on Solana daily",
+    },
+    NetworkMetricType.AVG_TPS: {
+        "name": "Average TPS",
+        "unit": "TPS",
+        "description": "Daily average transactions per second on Solana (successful, non-voting transactions / 86,400)",
     },
 }
 
