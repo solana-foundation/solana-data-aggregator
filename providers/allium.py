@@ -11,6 +11,7 @@ import requests
 
 from metrics.defi import Defi, DefiMetricType
 from metrics.lending import Lending, LendingMetricType
+from metrics.network import Network, NetworkMetricType
 from metrics.overview import Overview, OverviewMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
 from providers.base import BaseProvider
@@ -331,6 +332,22 @@ class Allium(BaseProvider):
                 ORDER BY 1 ASC
             """,
         },
+        "network_avg_tps": {
+            "date_field": "day",
+            "value_field": "avg_tps",
+            "chunked": True,
+            "methodology": "Successful, non-voting transactions per day divided by 86,400 seconds.",
+            "sql": """
+                SELECT
+                    block_timestamp::date AS day,
+                    COUNT(*) / 86400.0 AS avg_tps
+                FROM solana.raw.success_nonvoting_transactions
+                WHERE block_timestamp >= '{start_date}'
+                  AND block_timestamp <  DATEADD('day', 1, '{end_date}')
+                GROUP BY 1
+                ORDER BY 1 ASC
+            """,
+        },
         "overview_compute_units": {
             "date_field": "date",
             "value_field": "avg_compute_units_per_block",
@@ -487,7 +504,7 @@ class Allium(BaseProvider):
 
     def get_metric(
         self, metric: str, date: str, chain: str
-    ) -> Stablecoin | Overview | Defi | Lending | None:
+    ) -> Stablecoin | Overview | Defi | Lending | Network | None:
         """Fetch one metric value and return it as a typed metric model."""
         rows = self.fetch_rows(metric, date, date)
         if not rows:
@@ -536,6 +553,16 @@ class Allium(BaseProvider):
         if metric in lending_metric_map:
             return Lending.from_metric_type(
                 metric_type=lending_metric_map[metric],
+                date=parsed_date,
+                value=value,
+            )
+
+        network_metric_map = {
+            "network_avg_tps": NetworkMetricType.AVG_TPS,
+        }
+        if metric in network_metric_map:
+            return Network.from_metric_type(
+                metric_type=network_metric_map[metric],
                 date=parsed_date,
                 value=value,
             )
