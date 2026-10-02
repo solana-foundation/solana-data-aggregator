@@ -127,11 +127,13 @@ class Bitquery(BaseProvider):
         "defi_dex_traders": {
             "cube": "Trades",
             "query": _TRADES_QUERY,
-            "aggregate": "count(distinct: Trader_Address)",
+            "aggregate": "uniq(of: Trader_Address, method: approximate)",
             "cast": int,
             "methodology": (
                 "Number of unique trader wallet addresses executing at least one "
-                "DEX swap per day on Solana, from the Trading.Trades cube."
+                "DEX swap per day on Solana, from the Trading.Trades cube. The "
+                "approximate uniq (error around 1%) is faster and times out "
+                "less often than an exact distinct count over multi-day windows."
             ),
             "methodology_url": TRADES_DOCS_URL,
         },
