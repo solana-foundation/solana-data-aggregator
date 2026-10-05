@@ -15,7 +15,7 @@ soft-delete marker, and ``status = 0`` rows are failed transactions, which other
 providers exclude too. On the stablecoin table ``status`` was verified against the
 ``err`` column -- they agree on every row.
 
-The stablecoin table carries several pegs (``asset_id`` of ``usd``, ``eur``, ``chf``,
+The stablecoin table carries several pegs (``asset_id`` of ``usd``, ``eur``, ``vchf``,
 ...) and holds no price data, so the two USD-denominated metrics are scoped to
 ``asset_id = 'usd'`` and assume a 1:1 peg. Counts that are not currency-denominated
 span every curated stablecoin.
@@ -130,7 +130,7 @@ class Goldsky(BaseProvider):
             "table": "stable_coin_transfers",
             "date_field": "block_date",
             "value_field": "transfer_volume",
-            "methodology": "Daily transfer volume of USD-pegged stablecoins in Goldsky's solana.stable_coin_transfers dataset, summed over mint-decimal-normalized amounts. The dataset carries no prices, so each token is valued at its 1:1 peg and non-USD pegs (eur, chf, ...) are excluded. Mints, burns, and failed transactions are excluded.",
+            "methodology": "Daily transfer volume of USD-pegged stablecoins in Goldsky's solana.stable_coin_transfers dataset, summed over mint-decimal-normalized amounts. The dataset carries no prices, so each token is valued at its 1:1 peg and non-USD pegs (eur, vchf, ...) are excluded. Mints, burns, and failed transactions are excluded.",
             "methodology_url": STABLECOIN_DOCS_URL,
             "sql": """
                 SELECT
@@ -170,7 +170,7 @@ class Goldsky(BaseProvider):
             "table": "stable_coin_transfers",
             "date_field": "block_date",
             "value_field": "stablecoin_count",
-            "methodology": "Number of distinct USD-pegged stablecoin mints with at least one transfer per day in Goldsky's solana.stable_coin_transfers dataset, counted by token mint address. This is stablecoins seen in activity, not the number in existence. Failed transactions are excluded.",
+            "methodology": "Number of distinct USD-pegged stablecoin mints with at least one transfer per day in Goldsky's solana.stable_coin_transfers dataset, counted by asset-registry variant id. This is stablecoins seen in activity, not the number in existence. Failed transactions are excluded.",
             "methodology_url": STABLECOIN_DOCS_URL,
             "sql": """
                 SELECT
