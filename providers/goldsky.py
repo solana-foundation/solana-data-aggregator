@@ -175,7 +175,7 @@ class Goldsky(BaseProvider):
             "sql": """
                 SELECT
                     toDate(toDateTime(block_timestamp)) AS block_date,
-                    count(DISTINCT variant_id) AS stablecoin_count
+                    count(DISTINCT token_mint_address) AS stablecoin_count
                 FROM {table}
                 WHERE toDate(toDateTime(block_timestamp)) BETWEEN toDate('{start_date}') AND toDate('{end_date}')
                   AND is_deleted = 0
