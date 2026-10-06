@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from metrics.defi import Defi, DefiMetricType
+from metrics.lending import Lending, LendingMetricType
 from metrics.overview import Overview, OverviewMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
 from providers.base import BaseProvider
@@ -53,7 +54,23 @@ class DefiLlama(BaseProvider):
             },
             "fees_overview": True,
         },
+        "lending_total_deposits": {
+            "lending_field": "deposits",
+        },
+        "lending_utilization_rate": {
+            "lending_field": "utilization_rate",
+        },
+        "lending_total_borrowed": {
+            "lending_field": "borrowed",
+        },
+        "lending_protocol_count": {
+            "lending_field": "protocol_count",
+            "methodology": "DefiLlama Lending-category protocols with non-zero Solana deposits that day.",
+        },
     }
+
+    LENDING_CATEGORY = "Lending"
+    LENDING_CHAIN = "Solana"
 
     BASE_URL = "https://pro-api.llama.fi"
 
@@ -65,6 +82,7 @@ class DefiLlama(BaseProvider):
             api_key=resolved_api_key,
         )
         self._session = requests.Session()
+        self._lending_daily: Optional[Dict[str, Dict[str, float]]] = None
 
     # -- private helpers ----------------------------------------------------
 
@@ -74,6 +92,58 @@ class DefiLlama(BaseProvider):
         resp = self._session.get(url, params=params or {}, timeout=30)
         resp.raise_for_status()
         return resp.json()
+
+    def _fetch_lending_daily(self) -> Dict[str, Dict[str, float]]:
+        """Aggregate Solana lending balances per day across Lending-category protocols.
+
+        DefiLlama has no chain+category TVL chart, so this sums each protocol's
+        `Solana` (TVL, net of borrows) and `Solana-borrowed` series from
+        /api/protocol/{slug}. Cached on the instance since all four lending
+        metrics (utilization rate is derived from the same sums) share the
+        same ~30 protocol calls.
+        """
+        if self._lending_daily is not None:
+            return self._lending_daily
+
+        protocols = self._get(f"{self.base_url}/api/protocols")
+        slugs = [
+            p["slug"]
+            for p in protocols
+            if p.get("category") == self.LENDING_CATEGORY
+            and self.LENDING_CHAIN in (p.get("chains") or [])
+        ]
+
+        daily: Dict[str, Dict[str, float]] = {}
+        for slug in slugs:
+            chain_tvls = self._get(f"{self.base_url}/api/protocol/{slug}").get("chainTvls", {})
+            protocol_day: Dict[str, Dict[str, float]] = {}
+            for series_key, field in (
+                (self.LENDING_CHAIN, "tvl"),
+                (f"{self.LENDING_CHAIN}-borrowed", "borrowed"),
+            ):
+                for entry in chain_tvls.get(series_key, {}).get("tvl", []):
+                    # Series end with an intraday "now" point; keep the day's first (00:00 UTC) snapshot
+                    day = protocol_day.setdefault(self._ts_to_date(int(entry["date"])), {})
+                    day.setdefault(field, float(entry.get("totalLiquidityUSD") or 0))
+
+            for row_date, values in protocol_day.items():
+                deposits = values.get("tvl", 0.0) + values.get("borrowed", 0.0)
+                agg = daily.setdefault(
+                    row_date, {"deposits": 0.0, "borrowed": 0.0, "protocol_count": 0.0}
+                )
+                agg["deposits"] += deposits
+                agg["borrowed"] += values.get("borrowed", 0.0)
+                if deposits > 0:
+                    agg["protocol_count"] += 1
+
+        # Ratio of the Solana-wide sums (weighted by size), not an average of per-protocol rates.
+        # Days with no deposits get no utilization_rate and are skipped by fetch_rows.
+        for agg in daily.values():
+            if agg["deposits"] > 0:
+                agg["utilization_rate"] = agg["borrowed"] / agg["deposits"] * 100
+
+        self._lending_daily = daily
+        return daily
 
     # -- BaseProvider interface ---------------------------------------------
 
@@ -142,6 +212,14 @@ class DefiLlama(BaseProvider):
                 result.append({"date": row_date, "value": float(entry["price"])})
             return result
 
+        if config.get("lending_field"):
+            for row_date, values in sorted(self._fetch_lending_daily().items()):
+                value = values.get(config["lending_field"])
+                if value is None or not (start_date <= row_date <= end_date):
+                    continue
+                result.append({"date": row_date, "value": value})
+            return result
+
         if config.get("fees_overview"):
             raw = self._get(
                 f"{self.base_url}{config['endpoint']}",
@@ -191,7 +269,7 @@ class DefiLlama(BaseProvider):
 
     def get_metric(
         self, metric: str, date: str, chain: str
-    ) -> Defi | Overview | Stablecoin | None:
+    ) -> Defi | Lending | Overview | Stablecoin | None:
         """Fetch one metric value and return it as a typed metric model."""
         rows = self.fetch_rows(metric, date, date)
         if not rows:
@@ -218,6 +296,19 @@ class DefiLlama(BaseProvider):
         if metric in defi_metric_map:
             return Defi.from_metric_type(
                 metric_type=defi_metric_map[metric],
+                date=parsed_date,
+                value=value,
+            )
+
+        lending_metric_map = {
+            "lending_total_deposits": LendingMetricType.TOTAL_DEPOSITS,
+            "lending_utilization_rate": LendingMetricType.UTILIZATION_RATE,
+            "lending_total_borrowed": LendingMetricType.TOTAL_BORROWED,
+            "lending_protocol_count": LendingMetricType.PROTOCOL_COUNT,
+        }
+        if metric in lending_metric_map:
+            return Lending.from_metric_type(
+                metric_type=lending_metric_map[metric],
                 date=parsed_date,
                 value=value,
             )

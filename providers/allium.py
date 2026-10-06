@@ -10,6 +10,8 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from metrics.defi import Defi, DefiMetricType
+from metrics.lending import Lending, LendingMetricType
+from metrics.network import Network, NetworkMetricType
 from metrics.overview import Overview, OverviewMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
 from providers.base import BaseProvider
@@ -270,6 +272,80 @@ class Allium(BaseProvider):
                 ORDER BY activity_date ASC
             """,
         },
+        "lending_total_deposits": {
+            "date_field": "activity_date",
+            "value_field": "total_deposits_usd",
+            "sql": """
+                SELECT
+                    activity_date,
+                    SUM(supplied_amount_usd) AS total_deposits_usd
+                FROM crosschain.metrics.lending_overview
+                WHERE chain = 'solana'
+                  AND activity_date >= '{start_date}'
+                  AND activity_date < DATEADD('day', 1, '{end_date}')
+                GROUP BY 1
+                ORDER BY 1 ASC
+            """,
+        },
+        "lending_utilization_rate": {
+            "date_field": "activity_date",
+            "value_field": "utilization_rate_pct",
+            "sql": """
+                SELECT
+                    activity_date,
+                    SUM(outstanding_loans_usd) / NULLIF(SUM(supplied_amount_usd), 0) * 100 AS utilization_rate_pct
+                FROM crosschain.metrics.lending_overview
+                WHERE chain = 'solana'
+                  AND activity_date >= '{start_date}'
+                  AND activity_date < DATEADD('day', 1, '{end_date}')
+                GROUP BY 1
+                ORDER BY 1 ASC
+            """,
+        },
+        "lending_total_borrowed": {
+            "date_field": "activity_date",
+            "value_field": "total_borrowed_usd",
+            "sql": """
+                SELECT
+                    activity_date,
+                    SUM(outstanding_loans_usd) AS total_borrowed_usd
+                FROM crosschain.metrics.lending_overview
+                WHERE chain = 'solana'
+                  AND activity_date >= '{start_date}'
+                  AND activity_date < DATEADD('day', 1, '{end_date}')
+                GROUP BY 1
+                ORDER BY 1 ASC
+            """,
+        },
+        "lending_protocol_count": {
+            "date_field": "activity_date",
+            "value_field": "number_of_protocols",
+            "sql": """
+                SELECT
+                    activity_date,
+                    COUNT(DISTINCT project) AS number_of_protocols
+                FROM crosschain.metrics.lending_overview
+                WHERE chain = 'solana'
+                  AND activity_date >= '{start_date}'
+                  AND activity_date < DATEADD('day', 1, '{end_date}')
+                GROUP BY 1
+                ORDER BY 1 ASC
+            """,
+        },
+        "network_avg_tps": {
+            "date_field": "activity_date",
+            "value_field": "avg_tps",
+            "methodology": "Non-vote transactions (successful + failed) per day divided by 86,400 seconds.",
+            "sql": """
+                SELECT
+                    activity_date,
+                    (success_non_voting_tx_count + failed_non_voting_tx_count) / 86400.0 AS avg_tps
+                FROM solana.metrics.overview
+                WHERE activity_date >= '{start_date}'
+                  AND activity_date < DATEADD('day', 1, '{end_date}')
+                ORDER BY activity_date ASC
+            """,
+        },
         "overview_compute_units": {
             "date_field": "date",
             "value_field": "avg_compute_units_per_block",
@@ -426,7 +502,7 @@ class Allium(BaseProvider):
 
     def get_metric(
         self, metric: str, date: str, chain: str
-    ) -> Stablecoin | Overview | Defi | None:
+    ) -> Stablecoin | Overview | Defi | Lending | Network | None:
         """Fetch one metric value and return it as a typed metric model."""
         rows = self.fetch_rows(metric, date, date)
         if not rows:
@@ -462,6 +538,29 @@ class Allium(BaseProvider):
         if metric in defi_metric_map:
             return Defi.from_metric_type(
                 metric_type=defi_metric_map[metric],
+                date=parsed_date,
+                value=value,
+            )
+
+        lending_metric_map = {
+            "lending_total_deposits": LendingMetricType.TOTAL_DEPOSITS,
+            "lending_utilization_rate": LendingMetricType.UTILIZATION_RATE,
+            "lending_total_borrowed": LendingMetricType.TOTAL_BORROWED,
+            "lending_protocol_count": LendingMetricType.PROTOCOL_COUNT,
+        }
+        if metric in lending_metric_map:
+            return Lending.from_metric_type(
+                metric_type=lending_metric_map[metric],
+                date=parsed_date,
+                value=value,
+            )
+
+        network_metric_map = {
+            "network_avg_tps": NetworkMetricType.AVG_TPS,
+        }
+        if metric in network_metric_map:
+            return Network.from_metric_type(
+                metric_type=network_metric_map[metric],
                 date=parsed_date,
                 value=value,
             )

@@ -131,6 +131,14 @@ def test_transactions_query_uses_approximate_uniq() -> None:
     assert "uniq(of: TransactionHeader_Hash, method: approximate)" in query
 
 
+def test_traders_query_uses_approximate_uniq() -> None:
+    provider = _provider_with_response(_TRADES_RESPONSE)
+    provider.fetch_rows("defi_dex_traders", _START, _END)
+
+    query = provider._session.post.call_args.kwargs["json"]["query"]
+    assert "uniq(of: Trader_Address, method: approximate)" in query
+
+
 def test_price_query_uses_inclusive_day_instants() -> None:
     provider = _provider_with_response(_TOKENS_RESPONSE)
     provider.fetch_rows("overview_sol_price", _START, _END)
