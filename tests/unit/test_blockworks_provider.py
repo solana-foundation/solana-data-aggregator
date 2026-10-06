@@ -189,3 +189,124 @@ def test_get_metric_lending_utilization_returns_lending_metric() -> None:
         == LendingMetricType.UTILIZATION_RATE
     )
     assert mock_factory.call_args.kwargs["value"] == pytest.approx(40.0)
+
+
+def _timeseries_response(field: str, points: list) -> MagicMock:
+    return _mock_response(
+        {
+            "error": None,
+            "data": {
+                "point_schema": [
+                    {"field": "time", "time": True},
+                    {"field": field, "time": False},
+                ],
+                "points": points,
+            },
+        }
+    )
+
+
+def test_fetch_rows_fees_divides_usd_fees_by_sol_price() -> None:
+    provider = Blockworks(api_key="key")
+    fees_usd = _timeseries_response(
+        "fee-revenue",
+        [[1767225600, 1_000_000.0], [1767312000, 900_000.0], [1767398400, 800_000.0]],
+    )
+    # No price on 2026-01-03, so that day is skipped
+    sol_price = _timeseries_response(
+        "close", [[1767225600, 100.0], [1767312000, 90.0], [1767398400, None]]
+    )
+
+    with patch.object(
+        provider._session, "get", side_effect=[fees_usd, sol_price]
+    ) as mock_get:
+        rows = provider.fetch_rows("overview_fees", "2026-01-01", "2026-01-03")
+
+    assert rows == [
+        {"date": "2026-01-01", "value": 10_000.0},
+        {"date": "2026-01-02", "value": 10_000.0},
+    ]
+    requested = [
+        c.args[0].rsplit("/timeseries/", 1)[-1] for c in mock_get.call_args_list
+    ]
+    assert requested[0].startswith("blockchains/1d/")
+    assert requested[1].startswith("asset-price/1d/")
+
+
+def test_fetch_rows_compute_units_reads_block_date_chart() -> None:
+    provider = Blockworks(api_key="key")
+    rows = [
+        {
+            "block_date": "2026-10-05T00:00:00+00:00",
+            "avg_total_cu_per_block": 23_000_000.0,
+        },
+        {
+            "block_date": "2026-10-04T00:00:00+00:00",
+            "avg_total_cu_per_block": 24_000_000.0,
+        },
+    ]
+
+    with patch.object(
+        provider._session, "get", return_value=_chart_response(rows)
+    ) as mock_get:
+        result = provider.fetch_rows(
+            "overview_compute_units", "2026-10-04", "2026-10-05"
+        )
+
+    assert result == [
+        {"date": "2026-10-04", "value": 24_000_000.0},
+        {"date": "2026-10-05", "value": 23_000_000.0},
+    ]
+    assert mock_get.call_args.args[0].endswith("/v1/charts/2000/data")
+    assert mock_get.call_args.kwargs["params"]["order_by"] == "block_date"
+
+
+def test_fetch_rows_dex_count_counts_distinct_exchanges_per_day() -> None:
+    provider = Blockworks(api_key="key")
+    rows = [
+        {"block_date": "2026-10-05T00:00:00+00:00", "exchange_id": "raydium"},
+        {"block_date": "2026-10-05T00:00:00+00:00", "exchange_id": "orca"},
+        {"block_date": "2026-10-05T00:00:00+00:00", "exchange_id": "orca"},
+        {"block_date": "2026-10-04T00:00:00+00:00", "exchange_id": "raydium"},
+        {"block_date": "2026-10-04T00:00:00+00:00", "exchange_id": None},
+    ]
+
+    with patch.object(provider._session, "get", return_value=_chart_response(rows)):
+        result = provider.fetch_rows("defi_dex_count", "2026-10-04", "2026-10-05")
+
+    assert result == [
+        {"date": "2026-10-04", "value": 1.0},
+        {"date": "2026-10-05", "value": 2.0},
+    ]
+
+
+def test_chart_paging_stops_once_past_start_date() -> None:
+    provider = Blockworks(api_key="key")
+    provider.CHART_PAGE_SIZE = 2
+    page1 = _mock_response(
+        {
+            "data": [
+                {"block_date": "2026-10-05", "exchange_id": "a"},
+                {"block_date": "2026-10-04", "exchange_id": "a"},
+            ],
+            "total": 100,
+        }
+    )
+    page2 = _mock_response(
+        {
+            "data": [
+                {"block_date": "2026-10-03", "exchange_id": "a"},
+                {"block_date": "2026-10-02", "exchange_id": "a"},
+            ],
+            "total": 100,
+        }
+    )
+
+    with patch.object(provider._session, "get", side_effect=[page1, page2]) as mock_get:
+        result = provider.fetch_rows("defi_dex_count", "2026-10-03", "2026-10-05")
+
+    # Page 2 reaches 2026-10-02 < start, so no page 3 is requested
+    assert mock_get.call_count == 2
+    assert [c.kwargs["params"]["page"] for c in mock_get.call_args_list] == [1, 2]
+    assert mock_get.call_args.kwargs["params"]["order_dir"] == "desc"
+    assert [r["date"] for r in result] == ["2026-10-03", "2026-10-04", "2026-10-05"]

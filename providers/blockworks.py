@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import datetime
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 
@@ -77,6 +77,32 @@ class Blockworks(BaseProvider):
             "series": SOLANA_NETWORK_ID,
             "field": "dex-volume-usd",
         },
+        "overview_fees": {
+            # Fees in SOL: daily USD fees / SOL close price for the same day.
+            # Matches other providers through Jul 2026; ~20-25% above them since
+            # Blockworks revised fee-revenue from 2026-08-01 (reported to them).
+            "model": "blockchains",
+            "series": SOLANA_NETWORK_ID,
+            "field": "fee-revenue",
+            "divide_by": {
+                "model": "asset-price",
+                "series": SOL_ASSET_ID,
+                "field": "close",
+            },
+        },
+        # Chart 2000 ("Solana: Compute Unit Usage", Solana - Onchain Activity)
+        "overview_compute_units": {
+            "chart_id": 2000,
+            "date_field": "block_date",
+            "value_field": "avg_total_cu_per_block",
+        },
+        # Chart 8213 ("Solana: DEX Aggregator Volume by DEX"): one row per DEX per day
+        "defi_dex_count": {
+            "chart_id": 8213,
+            "date_field": "block_date",
+            "count_distinct": "exchange_id",
+            "methodology": "Top spot DEXs that aggregators route to.",
+        },
         # Chart 15954 ("Solana: Lending Total Deposits", Solana - Lending
         # dashboard): one row per day with totals and <protocol>_deposit /
         # <protocol>_borrow columns (Kamino, Jupiter Lend).
@@ -119,7 +145,8 @@ class Blockworks(BaseProvider):
             api_key=resolved_api_key,
         )
         self._session = requests.Session()
-        self._chart_cache: Dict[int, List[Dict[str, Any]]] = {}
+        # chart_id -> (earliest date covered, rows); "" means the whole chart
+        self._chart_cache: Dict[int, Tuple[str, List[Dict[str, Any]]]] = {}
 
     # -- private helpers ----------------------------------------------------
 
@@ -138,32 +165,47 @@ class Blockworks(BaseProvider):
         resp.raise_for_status()
         return resp.json()
 
-    def _get_chart_rows(self, chart_id: int) -> List[Dict[str, Any]]:
-        """Return every row of a chart, fetched once per instance.
+    @staticmethod
+    def _row_date(row: Dict[str, Any], date_field: str) -> str:
+        return str(row.get(date_field) or "")[:10]
 
-        Lending metrics share one chart, so a run makes one set of calls.
+    def _get_chart_rows(
+        self, chart_id: int, *, date_field: str, since: str
+    ) -> List[Dict[str, Any]]:
+        """Return a chart's rows from `since` onward, cached per instance.
+
+        Pages newest-first and stops once a page reaches dates before `since`,
+        so long charts (e.g. one row per DEX per day) aren't read in full.
+        Metrics sharing a chart (lending on 15954) reuse one set of calls.
         """
-        if chart_id not in self._chart_cache:
-            rows: List[Dict[str, Any]] = []
-            page = 1
-            while True:
-                body = self._get(
-                    f"/v1/charts/{chart_id}/data",
-                    params={
-                        "order_by": "dt",
-                        "order_dir": "asc",
-                        "limit": self.CHART_PAGE_SIZE,
-                        "page": page,
-                    },
-                )
-                page_data = body.get("data") or []
-                rows.extend(page_data)
-                total = body.get("total") or 0
-                if len(page_data) < self.CHART_PAGE_SIZE or len(rows) >= total:
-                    break
-                page += 1
-            self._chart_cache[chart_id] = rows
-        return self._chart_cache[chart_id]
+        cached = self._chart_cache.get(chart_id)
+        if cached is not None and cached[0] <= since:
+            return cached[1]
+
+        rows: List[Dict[str, Any]] = []
+        covered = since
+        page = 1
+        while True:
+            body = self._get(
+                f"/v1/charts/{chart_id}/data",
+                params={
+                    "order_by": date_field,
+                    "order_dir": "desc",
+                    "limit": self.CHART_PAGE_SIZE,
+                    "page": page,
+                },
+            )
+            page_data = body.get("data") or []
+            rows.extend(page_data)
+            total = body.get("total") or 0
+            if len(page_data) < self.CHART_PAGE_SIZE or len(rows) >= total:
+                covered = ""  # reached the start of the chart
+                break
+            if self._row_date(page_data[-1], date_field) < since:
+                break
+            page += 1
+        self._chart_cache[chart_id] = (covered, rows)
+        return rows
 
     @staticmethod
     def _chart_value(row: Dict[str, Any], config: Dict[str, Any]) -> Optional[float]:
@@ -191,15 +233,33 @@ class Blockworks(BaseProvider):
     def _fetch_chart_rows(
         self, config: Dict[str, Any], start_date: str, end_date: str
     ) -> List[Dict[str, Any]]:
+        date_field = config.get("date_field", "dt")
+        rows = [
+            row
+            for row in self._get_chart_rows(
+                config["chart_id"], date_field=date_field, since=start_date
+            )
+            if start_date <= self._row_date(row, date_field) <= end_date
+        ]
+
+        distinct_field = config.get("count_distinct")
+        if distinct_field is not None:
+            buckets: Dict[str, set] = {}
+            for row in rows:
+                if row.get(distinct_field) is not None:
+                    buckets.setdefault(self._row_date(row, date_field), set()).add(
+                        row[distinct_field]
+                    )
+            return [
+                {"date": d, "value": float(len(s))} for d, s in sorted(buckets.items())
+            ]
+
         result = []
-        for row in self._get_chart_rows(config["chart_id"]):
-            row_date = str(row.get("dt") or "")[:10]
-            if not start_date <= row_date <= end_date:
-                continue
+        for row in sorted(rows, key=lambda r: self._row_date(r, date_field)):
             value = self._chart_value(row, config)
             if value is None:
                 continue
-            result.append({"date": row_date, "value": value})
+            result.append({"date": self._row_date(row, date_field), "value": value})
         return result
 
     def fetch_rows(
@@ -210,16 +270,34 @@ class Blockworks(BaseProvider):
         if "chart_id" in config:
             return self._fetch_chart_rows(config, start_date, end_date)
 
+        rows = self._fetch_timeseries(config, start_date, end_date)
+        divisor_spec = config.get("divide_by")
+        if divisor_spec is None:
+            return rows
+        divisors = {
+            r["date"]: r["value"]
+            for r in self._fetch_timeseries(divisor_spec, start_date, end_date)
+        }
+        return [
+            {"date": r["date"], "value": r["value"] / divisors[r["date"]]}
+            for r in rows
+            if divisors.get(r["date"])
+        ]
+
+    def _fetch_timeseries(
+        self, spec: Dict[str, Any], start_date: str, end_date: str
+    ) -> List[Dict[str, Any]]:
+        """Fetch one field of one Data API series as {"date", "value"} rows."""
         # The Data API's `end` is exclusive; our end_date is inclusive.
         end_exclusive = datetime.date.fromisoformat(end_date) + datetime.timedelta(
             days=1
         )
         body = self._get(
-            f"/query/timeseries/{config['model']}/{self.GRANULARITY}/{config['series']}",
+            f"/query/timeseries/{spec['model']}/{self.GRANULARITY}/{spec['series']}",
             params={
                 "start": start_date,
                 "end": end_exclusive.isoformat(),
-                "selections": config["field"],
+                "selections": spec["field"],
             },
         )
         if body.get("error"):
@@ -228,7 +306,7 @@ class Blockworks(BaseProvider):
 
         # Each point is [unix_ts, value, ...] in point_schema order.
         fields = [col["field"] for col in data["point_schema"]]
-        value_idx = fields.index(config["field"])
+        value_idx = fields.index(spec["field"])
         result = []
         for point in data.get("points", []):
             value = point[value_idx]
@@ -256,6 +334,8 @@ class Blockworks(BaseProvider):
         overview_metric_map = {
             "overview_fee_payers": OverviewMetricType.FEE_PAYERS,
             "overview_sol_price": OverviewMetricType.SOL_PRICE,
+            "overview_fees": OverviewMetricType.FEES,
+            "overview_compute_units": OverviewMetricType.COMPUTE_UNITS,
             "overview_app_revenue": OverviewMetricType.APP_REVENUE,
             "overview_non_vote_tx_count_success": OverviewMetricType.TX_COUNT_NON_VOTE_SUCCESS,
             "overview_non_vote_tx_count_failed": OverviewMetricType.TX_COUNT_NON_VOTE_FAILED,
@@ -269,6 +349,7 @@ class Blockworks(BaseProvider):
 
         defi_metric_map = {
             "defi_dex_volume": DefiMetricType.DEX_VOLUME,
+            "defi_dex_count": DefiMetricType.DEX_COUNT,
         }
         if metric in defi_metric_map:
             return Defi.from_metric_type(
