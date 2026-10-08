@@ -24,6 +24,7 @@ from dotenv import load_dotenv
 
 from providers.allium import Allium
 from providers.artemis import Artemis
+from providers.bamservatory import Bamservatory
 from providers.base import BaseProvider
 from providers.blockworks import Blockworks
 from providers.defillama import DefiLlama
@@ -47,6 +48,7 @@ LOOKBACK_DAYS = 7
 PROVIDER_REGISTRY: List[tuple[str, Type[BaseProvider], Optional[str]]] = [
     ("allium", Allium, "ALLIUM_API_KEY"),
     ("artemis", Artemis, "ARTEMIS_API_KEY"),
+    ("bamservatory", Bamservatory, None),
     ("blockworks", Blockworks, "BLOCKWORKS_API_KEY"),
     ("defillama", DefiLlama, "DEFILLAMA_API_KEY"),
     ("dexpaprika", DexPaprika, None),
