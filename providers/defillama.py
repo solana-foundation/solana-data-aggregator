@@ -11,8 +11,14 @@ import requests
 from metrics.defi import Defi, DefiMetricType
 from metrics.lending import Lending, LendingMetricType
 from metrics.overview import Overview, OverviewMetricType
+from metrics.perps import Perps, PerpsMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
 from providers.base import BaseProvider
+
+# Solana perp venues included in the perps metrics (DefiLlama protocol names in the
+# protocol-breakdown charts). GMX Solana is GmTrade. Pacifica is excluded: DefiLlama
+# tracks it as off-chain, not Solana.
+PERP_VENUES = ("Jupiter Perpetual Exchange", "Phoenix Perp", "GMX Solana")
 
 
 class DefiLlama(BaseProvider):
@@ -67,6 +73,21 @@ class DefiLlama(BaseProvider):
             "lending_field": "protocol_count",
             "methodology": "DefiLlama Lending-category protocols with non-zero Solana deposits that day.",
         },
+        # Perps: per-protocol daily breakdowns, combined across PERP_VENUES
+        "perps_trading_volume": {
+            "endpoint": "/api/v2/chart/derivatives/chain/solana/protocol-breakdown",
+            "venues": PERP_VENUES,
+        },
+        "perps_open_interest": {
+            "endpoint": "/api/v2/chart/open-interest/chain/solana/protocol-breakdown",
+            "venues": PERP_VENUES,
+        },
+        "perps_venue_count": {
+            "endpoint": "/api/v2/chart/derivatives/chain/solana/protocol-breakdown",
+            "venues": PERP_VENUES,
+            # Venues with volume > 0 that day
+            "count_positive": True,
+        },
     }
 
     LENDING_CATEGORY = "Lending"
@@ -115,7 +136,9 @@ class DefiLlama(BaseProvider):
 
         daily: Dict[str, Dict[str, float]] = {}
         for slug in slugs:
-            chain_tvls = self._get(f"{self.base_url}/api/protocol/{slug}").get("chainTvls", {})
+            chain_tvls = self._get(f"{self.base_url}/api/protocol/{slug}").get(
+                "chainTvls", {}
+            )
             protocol_day: Dict[str, Dict[str, float]] = {}
             for series_key, field in (
                 (self.LENDING_CHAIN, "tvl"),
@@ -123,7 +146,9 @@ class DefiLlama(BaseProvider):
             ):
                 for entry in chain_tvls.get(series_key, {}).get("tvl", []):
                     # Series end with an intraday "now" point; keep the day's first (00:00 UTC) snapshot
-                    day = protocol_day.setdefault(self._ts_to_date(int(entry["date"])), {})
+                    day = protocol_day.setdefault(
+                        self._ts_to_date(int(entry["date"])), {}
+                    )
                     day.setdefault(field, float(entry.get("totalLiquidityUSD") or 0))
 
             for row_date, values in protocol_day.items():
@@ -249,6 +274,25 @@ class DefiLlama(BaseProvider):
                 if node is None:
                     continue
                 result.append({"date": row_date, "value": float(node)})
+        elif config.get("venues"):
+            chart = raw["chart"] if isinstance(raw, dict) and "chart" in raw else raw
+            for ts, protocols in chart:
+                row_date = self._ts_to_date(int(ts))
+                if not (start_date <= row_date <= end_date):
+                    continue
+                # A venue with no value that day (e.g. not launched yet) contributes nothing
+                values = [
+                    float(protocols[v])
+                    for v in config["venues"]
+                    if protocols.get(v) is not None
+                ]
+                if not values:
+                    continue
+                if config.get("count_positive"):
+                    value = float(sum(1 for v in values if v > 0))
+                else:
+                    value = sum(values)
+                result.append({"date": row_date, "value": value})
         elif config.get("count_active_protocols"):
             chart = raw["chart"] if isinstance(raw, dict) and "chart" in raw else raw
             for ts, protocols in chart:
@@ -269,7 +313,7 @@ class DefiLlama(BaseProvider):
 
     def get_metric(
         self, metric: str, date: str, chain: str
-    ) -> Defi | Lending | Overview | Stablecoin | None:
+    ) -> Defi | Lending | Overview | Perps | Stablecoin | None:
         """Fetch one metric value and return it as a typed metric model."""
         rows = self.fetch_rows(metric, date, date)
         if not rows:
@@ -309,6 +353,18 @@ class DefiLlama(BaseProvider):
         if metric in lending_metric_map:
             return Lending.from_metric_type(
                 metric_type=lending_metric_map[metric],
+                date=parsed_date,
+                value=value,
+            )
+
+        perps_metric_map = {
+            "perps_trading_volume": PerpsMetricType.TRADING_VOLUME,
+            "perps_open_interest": PerpsMetricType.OPEN_INTEREST,
+            "perps_venue_count": PerpsMetricType.VENUE_COUNT,
+        }
+        if metric in perps_metric_map:
+            return Perps.from_metric_type(
+                metric_type=perps_metric_map[metric],
                 date=parsed_date,
                 value=value,
             )
