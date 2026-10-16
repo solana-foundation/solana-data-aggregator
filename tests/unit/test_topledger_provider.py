@@ -309,8 +309,18 @@ def test_fetch_rows_skips_rows_with_null_value() -> None:
 # -- stablecoin metrics --------------------------------------------------------
 
 _STABLECOIN_ROWS = [
-    {"block_date": "2026-07-01", "marketcap": 12_500_000_000.0, "stablecoin_count": 8},
-    {"block_date": "2026-07-02", "marketcap": 12_600_000_000.0, "stablecoin_count": 8},
+    {
+        "block_date": "2026-07-01",
+        "marketcap": 12_500_000_000.0,
+        "total_supply": 13_000_000_000.0,
+        "stablecoin_count": 8,
+    },
+    {
+        "block_date": "2026-07-02",
+        "marketcap": 12_600_000_000.0,
+        "total_supply": 13_100_000_000.0,
+        "stablecoin_count": 8,
+    },
 ]
 
 
@@ -326,6 +336,18 @@ def test_fetch_rows_stablecoin_circulating_supply() -> None:
     assert rows[1] == {"date": "2026-07-02", "value": pytest.approx(12_600_000_000.0)}
 
 
+def test_fetch_rows_stablecoin_total_supply() -> None:
+    provider = _make_provider()
+    with patch.object(
+        provider._session, "post", return_value=_immediate_result_resp(_STABLECOIN_ROWS)
+    ):
+        rows = provider.fetch_rows("stablecoin_total_supply", _START, "2026-07-02")
+
+    assert len(rows) == 2
+    assert rows[0] == {"date": "2026-07-01", "value": pytest.approx(13_000_000_000.0)}
+    assert rows[1] == {"date": "2026-07-02", "value": pytest.approx(13_100_000_000.0)}
+
+
 def test_fetch_rows_stablecoin_count() -> None:
     provider = _make_provider()
     with patch.object(
@@ -337,12 +359,13 @@ def test_fetch_rows_stablecoin_count() -> None:
 
 
 def test_stablecoin_metrics_share_one_query_call() -> None:
-    """stablecoin_circulating_supply and stablecoin_count both use query 15090 — one POST."""
+    """Circulating supply, total supply, and count all use query 15090 — one POST."""
     provider = _make_provider()
     mock_post = MagicMock(return_value=_immediate_result_resp(_STABLECOIN_ROWS))
 
     with patch.object(provider._session, "post", mock_post):
         provider.fetch_rows("stablecoin_circulating_supply", _START, "2026-07-02")
+        provider.fetch_rows("stablecoin_total_supply", _START, "2026-07-02")
         provider.fetch_rows("stablecoin_count", _START, "2026-07-02")
 
     assert mock_post.call_count == 1
@@ -358,6 +381,19 @@ def test_get_metric_returns_stablecoin_model() -> None:
     assert isinstance(result, Stablecoin)
     assert result.metric_type == StablecoinMetricType.CIRCULATING_SUPPLY
     assert result.value == pytest.approx(12_500_000_000.0)
+    assert result.date == datetime.date.fromisoformat(_START)
+
+
+def test_get_metric_stablecoin_total_supply_returns_stablecoin_model() -> None:
+    provider = _make_provider()
+    with patch.object(
+        provider._session, "post", return_value=_immediate_result_resp(_STABLECOIN_ROWS)
+    ):
+        result = provider.get_metric("stablecoin_total_supply", _START, "solana")
+
+    assert isinstance(result, Stablecoin)
+    assert result.metric_type == StablecoinMetricType.TOTAL_SUPPLY
+    assert result.value == pytest.approx(13_000_000_000.0)
     assert result.date == datetime.date.fromisoformat(_START)
 
 

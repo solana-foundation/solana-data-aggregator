@@ -75,7 +75,13 @@ class TopLedger(BaseProvider):
             "query_id": 15090,
             "date_field": "block_date",
             "value_field": "marketcap",
-            "methodology": "Total circulating supply of stablecoins in USD",
+            "methodology": "Circulating supply of stablecoins in USD",
+        },
+        "stablecoin_total_supply": {
+            "query_id": 15090,
+            "date_field": "block_date",
+            "value_field": "total_supply",
+            "methodology": "Total supply of stablecoins in USD, including non-circulating balances",
         },
         "stablecoin_count": {
             "query_id": 15090,
@@ -137,6 +143,7 @@ class TopLedger(BaseProvider):
 
     _STABLECOIN_METRIC_TYPE_MAP: Dict[str, StablecoinMetricType] = {
         "stablecoin_circulating_supply": StablecoinMetricType.CIRCULATING_SUPPLY,
+        "stablecoin_total_supply": StablecoinMetricType.TOTAL_SUPPLY,
         "stablecoin_count": StablecoinMetricType.COUNT,
         "stablecoin_transfer_volume": StablecoinMetricType.TRANSFER_VOLUME,
         "stablecoin_transfer_count": StablecoinMetricType.TRANSFER_COUNT,
