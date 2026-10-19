@@ -19,20 +19,28 @@ def _mock_response(body: dict) -> MagicMock:
     return mock_resp
 
 
-def test_get_stablecoin_total_supply_returns_stablecoin_metric() -> None:
-    provider = Blockworks(api_key="key")
-    mock_resp = _mock_response(
+def _supply_response(points: list) -> MagicMock:
+    """stablecoins-by-chain response. The API lists fields in its own (catalog)
+    order, not the requested one, so protocol-owned comes first here on purpose."""
+    return _mock_response(
         {
             "error": None,
             "data": {
                 "point_schema": [
                     {"field": "time", "time": True},
-                    {"field": "stablecoin-outstanding-supply-usd", "time": False},
+                    {"field": "balanceProtocolOwnedUSD", "time": False},
+                    {"field": "circulatingSupplyUSD", "time": False},
                 ],
-                "points": [[1767225600, 5_000_000_000.0]],  # 2026-01-01T00:00:00Z
+                "points": points,
             },
         }
     )
+
+
+def test_get_stablecoin_total_supply_sums_circulating_and_protocol_owned() -> None:
+    provider = Blockworks(api_key="key")
+    # 2026-01-01T00:00:00Z: protocol-owned 1.5B, circulating 15B
+    mock_resp = _supply_response([[1767225600, 1_500_000_000.0, 15_000_000_000.0]])
     sentinel_metric = object()
 
     with (
@@ -45,21 +53,73 @@ def test_get_stablecoin_total_supply_returns_stablecoin_metric() -> None:
 
     assert result is sentinel_metric
     assert mock_get.call_args.args[0] == (
-        f"https://api.blockworks.com/query/timeseries/blockchains/1d/{SOLANA_NETWORK_ID}"
+        "https://api.blockworks.com/query/timeseries/stablecoins-by-chain/1d/solana"
     )
     assert mock_get.call_args.kwargs["headers"] == {"X-Blockworks-API-Key": "key"}
     # `end` is exclusive in the Data API, so it is one day past the requested date.
     assert mock_get.call_args.kwargs["params"] == {
         "start": "2026-01-01",
         "end": "2026-01-02",
-        "selections": "stablecoin-outstanding-supply-usd",
+        "selections": "circulatingSupplyUSD,balanceProtocolOwnedUSD",
     }
     mock_factory.assert_called_once()
     assert (
         mock_factory.call_args.kwargs["metric_type"]
         == StablecoinMetricType.TOTAL_SUPPLY
     )
-    assert mock_factory.call_args.kwargs["value"] == 5_000_000_000.0
+    assert mock_factory.call_args.kwargs["value"] == 16_500_000_000.0
+
+
+def test_fetch_rows_total_supply_skips_days_missing_a_field() -> None:
+    provider = Blockworks(api_key="key")
+    mock_resp = _supply_response(
+        [
+            [1767225600, 1_500_000_000.0, 15_000_000_000.0],
+            [1767312000, None, 15_100_000_000.0],  # no protocol-owned value
+        ]
+    )
+
+    with patch.object(provider._session, "get", return_value=mock_resp):
+        rows = provider.fetch_rows(
+            "stablecoin_total_supply", "2026-01-01", "2026-01-02"
+        )
+
+    assert rows == [{"date": "2026-01-01", "value": 16_500_000_000.0}]
+
+
+def test_get_stablecoin_circulating_supply_reads_circulating_field() -> None:
+    provider = Blockworks(api_key="key")
+    mock_resp = _mock_response(
+        {
+            "error": None,
+            "data": {
+                "point_schema": [
+                    {"field": "time", "time": True},
+                    {"field": "circulatingSupplyUSD", "time": False},
+                ],
+                "points": [[1767225600, 15_000_000_000.0]],
+            },
+        }
+    )
+    sentinel_metric = object()
+
+    with (
+        patch.object(provider._session, "get", return_value=mock_resp) as mock_get,
+        patch.object(
+            Stablecoin, "from_metric_type", return_value=sentinel_metric
+        ) as mock_factory,
+    ):
+        result = provider.get_metric(
+            "stablecoin_circulating_supply", "2026-01-01", "solana"
+        )
+
+    assert result is sentinel_metric
+    assert mock_get.call_args.kwargs["params"]["selections"] == "circulatingSupplyUSD"
+    assert (
+        mock_factory.call_args.kwargs["metric_type"]
+        == StablecoinMetricType.CIRCULATING_SUPPLY
+    )
+    assert mock_factory.call_args.kwargs["value"] == 15_000_000_000.0
 
 
 def test_fetch_rows_skips_null_values() -> None:
@@ -207,31 +267,25 @@ def _timeseries_response(field: str, points: list) -> MagicMock:
     )
 
 
-def test_fetch_rows_fees_divides_usd_fees_by_sol_price() -> None:
+def test_fetch_rows_fees_reads_fees_total_native() -> None:
     provider = Blockworks(api_key="key")
-    fees_usd = _timeseries_response(
-        "fee-revenue",
-        [[1767225600, 1_000_000.0], [1767312000, 900_000.0], [1767398400, 800_000.0]],
-    )
-    # No price on 2026-01-03, so that day is skipped
-    sol_price = _timeseries_response(
-        "close", [[1767225600, 100.0], [1767312000, 90.0], [1767398400, None]]
+    resp = _timeseries_response(
+        "fees-total-native", [[1767225600, 9_000.0], [1767312000, 8_500.0]]
     )
 
-    with patch.object(
-        provider._session, "get", side_effect=[fees_usd, sol_price]
-    ) as mock_get:
-        rows = provider.fetch_rows("overview_fees", "2026-01-01", "2026-01-03")
+    with patch.object(provider._session, "get", return_value=resp) as mock_get:
+        rows = provider.fetch_rows("overview_fees", "2026-01-01", "2026-01-02")
 
     assert rows == [
-        {"date": "2026-01-01", "value": 10_000.0},
-        {"date": "2026-01-02", "value": 10_000.0},
+        {"date": "2026-01-01", "value": 9_000.0},
+        {"date": "2026-01-02", "value": 8_500.0},
     ]
-    requested = [
-        c.args[0].rsplit("/timeseries/", 1)[-1] for c in mock_get.call_args_list
-    ]
-    assert requested[0].startswith("blockchains/1d/")
-    assert requested[1].startswith("asset-price/1d/")
+    # One request, read in SOL directly -- no price conversion
+    mock_get.assert_called_once()
+    assert mock_get.call_args.args[0] == (
+        f"https://api.blockworks.com/query/timeseries/blockchains/1d/{SOLANA_NETWORK_ID}"
+    )
+    assert mock_get.call_args.kwargs["params"]["selections"] == "fees-total-native"
 
 
 def test_fetch_rows_compute_units_reads_block_date_chart() -> None:

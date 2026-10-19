@@ -32,10 +32,17 @@ class Blockworks(BaseProvider):
     """
 
     METRIC_MAP: Dict[str, Dict[str, Any]] = {
+        # stablecoins-by-chain is keyed by chain slug, not network id
         "stablecoin_total_supply": {
-            "model": "blockchains",
-            "series": SOLANA_NETWORK_ID,
-            "field": "stablecoin-outstanding-supply-usd",
+            "model": "stablecoins-by-chain",
+            "series": "solana",
+            # Circulating plus issuer/protocol-held balances
+            "sum_fields": ("circulatingSupplyUSD", "balanceProtocolOwnedUSD"),
+        },
+        "stablecoin_circulating_supply": {
+            "model": "stablecoins-by-chain",
+            "series": "solana",
+            "field": "circulatingSupplyUSD",
         },
         "stablecoin_transfer_volume": {
             "model": "blockchains",
@@ -84,17 +91,9 @@ class Blockworks(BaseProvider):
             "field": "dex-volume-usd",
         },
         "overview_fees": {
-            # Fees in SOL: daily USD fees / SOL close price for the same day.
-            # Matches other providers through Jul 2026; ~20-25% above them since
-            # Blockworks revised fee-revenue from 2026-08-01 (reported to them).
             "model": "blockchains",
             "series": SOLANA_NETWORK_ID,
-            "field": "fee-revenue",
-            "divide_by": {
-                "model": "asset-price",
-                "series": SOL_ASSET_ID,
-                "field": "close",
-            },
+            "field": "fees-total-native",
         },
         # Chart 2000 ("Solana: Compute Unit Usage", Solana - Onchain Activity)
         "overview_compute_units": {
@@ -301,29 +300,17 @@ class Blockworks(BaseProvider):
         if "venues" in config:
             return self._fetch_venue_rows(config, start_date, end_date)
 
-        rows = self._fetch_timeseries(config, start_date, end_date)
-        divisor_spec = config.get("divide_by")
-        if divisor_spec is None:
-            return rows
-        divisors = {
-            r["date"]: r["value"]
-            for r in self._fetch_timeseries(divisor_spec, start_date, end_date)
-        }
-        return [
-            {"date": r["date"], "value": r["value"] / divisors[r["date"]]}
-            for r in rows
-            if divisors.get(r["date"])
-        ]
+        return self._fetch_timeseries(config, start_date, end_date)
 
     def _query_timeseries(
         self,
         path: str,
-        field: str,
+        fields: Tuple[str, ...],
         start_date: str,
         end_date: str,
         extra_params: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[Dict[str, Any], int]:
-        """Run a Data API timeseries query; return its data and the field's point index."""
+    ) -> Tuple[Dict[str, Any], List[int]]:
+        """Run a Data API timeseries query; return its data and each field's point index."""
         # The Data API's `end` is exclusive; our end_date is inclusive.
         end_exclusive = datetime.date.fromisoformat(end_date) + datetime.timedelta(
             days=1
@@ -333,7 +320,7 @@ class Blockworks(BaseProvider):
             params={
                 "start": start_date,
                 "end": end_exclusive.isoformat(),
-                "selections": field,
+                "selections": ",".join(fields),
                 **(extra_params or {}),
             },
         )
@@ -341,8 +328,8 @@ class Blockworks(BaseProvider):
             raise RuntimeError(f"Blockworks API error: {body['error']}")
         data = body["data"]
         # Each point is [unix_ts, value, ...] in point_schema order.
-        fields = [col["field"] for col in data["point_schema"]]
-        return data, fields.index(field)
+        schema = [col["field"] for col in data["point_schema"]]
+        return data, [schema.index(field) for field in fields]
 
     @staticmethod
     def _point_date(point: List[Any]) -> str:
@@ -355,17 +342,25 @@ class Blockworks(BaseProvider):
     def _fetch_timeseries(
         self, spec: Dict[str, Any], start_date: str, end_date: str
     ) -> List[Dict[str, Any]]:
-        """Fetch one field of one Data API series as {"date", "value"} rows."""
-        data, value_idx = self._query_timeseries(
+        """Fetch one Data API series as {"date", "value"} rows.
+
+        The value is ``field``, or with ``sum_fields`` the sum of those fields;
+        a day where any of them is missing is skipped rather than partially summed.
+        """
+        fields = tuple(spec.get("sum_fields") or (spec["field"],))
+        data, idxs = self._query_timeseries(
             f"/query/timeseries/{spec['model']}/{self.GRANULARITY}/{spec['series']}",
-            spec["field"],
+            fields,
             start_date,
             end_date,
         )
         return [
-            {"date": self._point_date(point), "value": float(point[value_idx])}
+            {
+                "date": self._point_date(point),
+                "value": sum(float(point[i]) for i in idxs),
+            }
             for point in data.get("points", [])
-            if point[value_idx] is not None
+            if all(point[i] is not None for i in idxs)
         ]
 
     def _fetch_venue_rows(
@@ -377,9 +372,9 @@ class Blockworks(BaseProvider):
         with a value > 0 are counted. A venue with no value that day (e.g. not
         launched yet) contributes nothing.
         """
-        data, value_idx = self._query_timeseries(
+        data, (value_idx,) = self._query_timeseries(
             f"/query/timeseries/{config['model']}/{self.GRANULARITY}",
-            config["field"],
+            (config["field"],),
             start_date,
             end_date,
             extra_params={"series": ",".join(config["venues"])},
@@ -466,6 +461,7 @@ class Blockworks(BaseProvider):
 
         stablecoin_metric_map = {
             "stablecoin_total_supply": StablecoinMetricType.TOTAL_SUPPLY,
+            "stablecoin_circulating_supply": StablecoinMetricType.CIRCULATING_SUPPLY,
             "stablecoin_transfer_volume": StablecoinMetricType.TRANSFER_VOLUME,
             "stablecoin_transfer_count": StablecoinMetricType.TRANSFER_COUNT,
             "stablecoin_active_addresses": StablecoinMetricType.ACTIVE_ADDRESSES,
