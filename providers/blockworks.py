@@ -36,8 +36,11 @@ class Blockworks(BaseProvider):
         "stablecoin_total_supply": {
             "model": "stablecoins-by-chain",
             "series": "solana",
-            # Circulating plus issuer/protocol-held balances
-            "sum_fields": ("circulatingSupplyUSD", "balanceProtocolOwnedUSD"),
+            "sum_fields": (
+                "circulatingSupplyUSD",
+                "balanceProtocolOwnedUSD",
+                "balanceBridgeUSD",
+            ),
         },
         "stablecoin_circulating_supply": {
             "model": "stablecoins-by-chain",

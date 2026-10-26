@@ -21,7 +21,7 @@ def _mock_response(body: dict) -> MagicMock:
 
 def _supply_response(points: list) -> MagicMock:
     """stablecoins-by-chain response. The API lists fields in its own (catalog)
-    order, not the requested one, so protocol-owned comes first here on purpose."""
+    order, not the requested one, so circulating comes last here on purpose."""
     return _mock_response(
         {
             "error": None,
@@ -29,6 +29,7 @@ def _supply_response(points: list) -> MagicMock:
                 "point_schema": [
                     {"field": "time", "time": True},
                     {"field": "balanceProtocolOwnedUSD", "time": False},
+                    {"field": "balanceBridgeUSD", "time": False},
                     {"field": "circulatingSupplyUSD", "time": False},
                 ],
                 "points": points,
@@ -37,10 +38,12 @@ def _supply_response(points: list) -> MagicMock:
     )
 
 
-def test_get_stablecoin_total_supply_sums_circulating_and_protocol_owned() -> None:
+def test_get_stablecoin_total_supply_sums_circulating_unissued_and_bridge() -> None:
     provider = Blockworks(api_key="key")
-    # 2026-01-01T00:00:00Z: protocol-owned 1.5B, circulating 15B
-    mock_resp = _supply_response([[1767225600, 1_500_000_000.0, 15_000_000_000.0]])
+    # 2026-01-01T00:00:00Z: protocol-owned 1.5B, bridge 0.25B, circulating 15B
+    mock_resp = _supply_response(
+        [[1767225600, 1_500_000_000.0, 250_000_000.0, 15_000_000_000.0]]
+    )
     sentinel_metric = object()
 
     with (
@@ -60,22 +63,22 @@ def test_get_stablecoin_total_supply_sums_circulating_and_protocol_owned() -> No
     assert mock_get.call_args.kwargs["params"] == {
         "start": "2026-01-01",
         "end": "2026-01-02",
-        "selections": "circulatingSupplyUSD,balanceProtocolOwnedUSD",
+        "selections": "circulatingSupplyUSD,balanceProtocolOwnedUSD,balanceBridgeUSD",
     }
     mock_factory.assert_called_once()
     assert (
         mock_factory.call_args.kwargs["metric_type"]
         == StablecoinMetricType.TOTAL_SUPPLY
     )
-    assert mock_factory.call_args.kwargs["value"] == 16_500_000_000.0
+    assert mock_factory.call_args.kwargs["value"] == 16_750_000_000.0
 
 
 def test_fetch_rows_total_supply_skips_days_missing_a_field() -> None:
     provider = Blockworks(api_key="key")
     mock_resp = _supply_response(
         [
-            [1767225600, 1_500_000_000.0, 15_000_000_000.0],
-            [1767312000, None, 15_100_000_000.0],  # no protocol-owned value
+            [1767225600, 1_500_000_000.0, 250_000_000.0, 15_000_000_000.0],
+            [1767312000, 1_400_000_000.0, None, 15_100_000_000.0],  # no bridge value
         ]
     )
 
@@ -84,7 +87,7 @@ def test_fetch_rows_total_supply_skips_days_missing_a_field() -> None:
             "stablecoin_total_supply", "2026-01-01", "2026-01-02"
         )
 
-    assert rows == [{"date": "2026-01-01", "value": 16_500_000_000.0}]
+    assert rows == [{"date": "2026-01-01", "value": 16_750_000_000.0}]
 
 
 def test_get_stablecoin_circulating_supply_reads_circulating_field() -> None:
