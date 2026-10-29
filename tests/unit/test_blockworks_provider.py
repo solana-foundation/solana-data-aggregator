@@ -270,10 +270,10 @@ def _timeseries_response(field: str, points: list) -> MagicMock:
     )
 
 
-def test_fetch_rows_fees_reads_fees_total_native() -> None:
+def test_fetch_rows_fees_reads_transaction_fees_native() -> None:
     provider = Blockworks(api_key="key")
     resp = _timeseries_response(
-        "fees-total-native", [[1767225600, 9_000.0], [1767312000, 8_500.0]]
+        "transaction-fees-native", [[1767225600, 9_000.0], [1767312000, 8_500.0]]
     )
 
     with patch.object(provider._session, "get", return_value=resp) as mock_get:
@@ -288,7 +288,9 @@ def test_fetch_rows_fees_reads_fees_total_native() -> None:
     assert mock_get.call_args.args[0] == (
         f"https://api.blockworks.com/query/timeseries/blockchains/1d/{SOLANA_NETWORK_ID}"
     )
-    assert mock_get.call_args.kwargs["params"]["selections"] == "fees-total-native"
+    assert (
+        mock_get.call_args.kwargs["params"]["selections"] == "transaction-fees-native"
+    )
 
 
 def test_fetch_rows_compute_units_reads_block_date_chart() -> None:
