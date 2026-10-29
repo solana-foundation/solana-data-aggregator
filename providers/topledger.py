@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from metrics.defi import Defi, DefiMetricType
+from metrics.network import Network, NetworkMetricType
 from metrics.overview import Overview, OverviewMetricType
 from metrics.perps import Perps, PerpsMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
@@ -186,6 +187,30 @@ class TopLedger(BaseProvider):
             "value_field": "total_open_interest_usd",
             "methodology": "Total open interest across Solana perp venues in USD",
         },
+        "network_total_stake": {
+            "query_id": 15379,
+            "date_field": "block_date",
+            "value_field": "sol_staked",
+            "methodology": "Total staked SOL across all validators on Solana daily",
+        },
+        "network_validator_count": {
+            "query_id": 15380,
+            "date_field": "block_date",
+            "value_field": "validators_count",
+            "methodology": "Number of active validators on Solana daily",
+        },
+        "network_top_3_asn_share": {
+            "query_id": 15380,
+            "date_field": "block_date",
+            "value_field": "asn_share_top3",
+            "methodology": "Percentage of stake concentrated in the top 3 ASNs on Solana daily",
+        },
+        "network_avg_tps": {
+            "query_id": 15088,
+            "date_field": "block_date",
+            "value_field": "avg_tps",
+            "methodology": "Daily average transactions per second on Solana (non-vote transactions, successful and failed, / 86,400)",
+        },
     }
 
     _OVERVIEW_METRIC_TYPE_MAP: Dict[str, OverviewMetricType] = {
@@ -222,6 +247,13 @@ class TopLedger(BaseProvider):
         "perps_venue_count": PerpsMetricType.VENUE_COUNT,
         "perps_traders": PerpsMetricType.TRADERS,
         "perps_open_interest": PerpsMetricType.OPEN_INTEREST,
+    }
+
+    _NETWORK_METRIC_TYPE_MAP: Dict[str, NetworkMetricType] = {
+        "network_total_stake": NetworkMetricType.TOTAL_STAKE,
+        "network_validator_count": NetworkMetricType.VALIDATOR_COUNT,
+        "network_top_3_asn_share": NetworkMetricType.TOP_3_ASN_SHARE,
+        "network_avg_tps": NetworkMetricType.AVG_TPS,
     }
 
     _POLL_INTERVAL = 2  # seconds between job status polls
@@ -344,7 +376,7 @@ class TopLedger(BaseProvider):
 
     def get_metric(
         self, metric: str, date: str, chain: str
-    ) -> Overview | Stablecoin | Defi | Perps | None:
+    ) -> Overview | Stablecoin | Defi | Perps | Network | None:
         """Fetch one metric for one date and return it as a typed metric model."""
         rows = self.fetch_rows(metric, date, date)
         if not rows:
@@ -374,6 +406,12 @@ class TopLedger(BaseProvider):
         if perps_type is not None:
             return Perps.from_metric_type(
                 metric_type=perps_type, date=parsed_date, value=value
+            )
+
+        network_type = self._NETWORK_METRIC_TYPE_MAP.get(metric)
+        if network_type is not None:
+            return Network.from_metric_type(
+                metric_type=network_type, date=parsed_date, value=value
             )
 
         return None

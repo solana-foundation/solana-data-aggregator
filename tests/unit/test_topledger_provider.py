@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from metrics.defi import Defi, DefiMetricType
+from metrics.network import Network, NetworkMetricType
 from metrics.overview import Overview, OverviewMetricType
 from metrics.perps import Perps, PerpsMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
@@ -26,6 +27,7 @@ _RAW_ROWS = [
         "transactions": 80_000_000,
         "vote_transactions": 45_000_000,
         "txns_fees": 12_500.5,
+        "avg_tps": 405.09,
     },
     {
         "block_date": "2026-07-02",
@@ -35,6 +37,7 @@ _RAW_ROWS = [
         "transactions": 78_500_000,
         "vote_transactions": 44_200_000,
         "txns_fees": 11_900.25,
+        "avg_tps": 396.99,
     },
     {
         "block_date": "2026-07-03",
@@ -44,6 +47,7 @@ _RAW_ROWS = [
         "transactions": 81_200_000,
         "vote_transactions": 45_100_000,
         "txns_fees": 13_050.75,
+        "avg_tps": 417.82,
     },
 ]
 
@@ -898,6 +902,131 @@ def test_get_metric_perps_open_interest_returns_perps_model() -> None:
     assert isinstance(result, Perps)
     assert result.metric_type == PerpsMetricType.OPEN_INTEREST
     assert result.value == pytest.approx(1_200_000_000.0)
+
+
+# -- network metrics -----------------------------------------------------------
+
+_STAKE_ROWS = [
+    {"block_date": "2026-07-01", "sol_staked": 380_000_000.0},
+    {"block_date": "2026-07-02", "sol_staked": 381_500_000.0},
+]
+
+_VALIDATOR_ROWS = [
+    {
+        "block_date": "2026-07-01",
+        "validators_count": 1_350,
+        "asn_share_top3": 28.5,
+    },
+    {
+        "block_date": "2026-07-02",
+        "validators_count": 1_355,
+        "asn_share_top3": 28.1,
+    },
+]
+
+
+def test_fetch_rows_network_total_stake() -> None:
+    provider = _make_provider()
+    with patch.object(
+        provider._session, "post", return_value=_immediate_result_resp(_STAKE_ROWS)
+    ):
+        rows = provider.fetch_rows("network_total_stake", _START, "2026-07-02")
+
+    assert len(rows) == 2
+    assert rows[0] == {"date": "2026-07-01", "value": pytest.approx(380_000_000.0)}
+    assert rows[1] == {"date": "2026-07-02", "value": pytest.approx(381_500_000.0)}
+
+
+def test_fetch_rows_network_validator_count() -> None:
+    provider = _make_provider()
+    with patch.object(
+        provider._session, "post", return_value=_immediate_result_resp(_VALIDATOR_ROWS)
+    ):
+        rows = provider.fetch_rows("network_validator_count", _START, "2026-07-02")
+
+    assert rows[0]["value"] == 1_350.0
+    assert rows[1]["value"] == 1_355.0
+
+
+def test_fetch_rows_network_top_3_asn_share() -> None:
+    provider = _make_provider()
+    with patch.object(
+        provider._session, "post", return_value=_immediate_result_resp(_VALIDATOR_ROWS)
+    ):
+        rows = provider.fetch_rows("network_top_3_asn_share", _START, "2026-07-02")
+
+    assert rows[0]["value"] == pytest.approx(28.5)
+    assert rows[1]["value"] == pytest.approx(28.1)
+
+
+def test_fetch_rows_network_avg_tps() -> None:
+    provider = _make_provider()
+    with patch.object(
+        provider._session, "post", return_value=_immediate_result_resp(_RAW_ROWS)
+    ):
+        rows = provider.fetch_rows("network_avg_tps", _START, _END)
+
+    assert rows[0]["value"] == pytest.approx(405.09)
+
+
+def test_network_validator_metrics_share_one_query_call() -> None:
+    """validator_count and top_3_asn_share share query 15380 — one POST."""
+    provider = _make_provider()
+    mock_post = MagicMock(return_value=_immediate_result_resp(_VALIDATOR_ROWS))
+
+    with patch.object(provider._session, "post", mock_post):
+        provider.fetch_rows("network_validator_count", _START, "2026-07-02")
+        provider.fetch_rows("network_top_3_asn_share", _START, "2026-07-02")
+
+    assert mock_post.call_count == 1
+
+
+def test_get_metric_network_total_stake_returns_network_model() -> None:
+    provider = _make_provider()
+    with patch.object(
+        provider._session, "post", return_value=_immediate_result_resp(_STAKE_ROWS)
+    ):
+        result = provider.get_metric("network_total_stake", _START, "solana")
+
+    assert isinstance(result, Network)
+    assert result.metric_type == NetworkMetricType.TOTAL_STAKE
+    assert result.value == pytest.approx(380_000_000.0)
+
+
+def test_get_metric_network_validator_count_returns_network_model() -> None:
+    provider = _make_provider()
+    with patch.object(
+        provider._session, "post", return_value=_immediate_result_resp(_VALIDATOR_ROWS)
+    ):
+        result = provider.get_metric("network_validator_count", _START, "solana")
+
+    assert isinstance(result, Network)
+    assert result.metric_type == NetworkMetricType.VALIDATOR_COUNT
+    assert result.value == 1_350.0
+
+
+def test_get_metric_network_top_3_asn_share_returns_network_model() -> None:
+    provider = _make_provider()
+    with patch.object(
+        provider._session, "post", return_value=_immediate_result_resp(_VALIDATOR_ROWS)
+    ):
+        result = provider.get_metric("network_top_3_asn_share", _START, "solana")
+
+    assert isinstance(result, Network)
+    assert result.metric_type == NetworkMetricType.TOP_3_ASN_SHARE
+    assert result.value == pytest.approx(28.5)
+
+
+def test_get_metric_network_avg_tps_returns_network_model() -> None:
+    provider = _make_provider()
+    with patch.object(
+        provider._session, "post", return_value=_immediate_result_resp(_RAW_ROWS)
+    ):
+        result = provider.get_metric("network_avg_tps", _START, "solana")
+
+    assert isinstance(result, Network)
+    assert result.metric_type == NetworkMetricType.AVG_TPS
+    assert result.value == pytest.approx(405.09)
 
 
 # -- constructor ---------------------------------------------------------------
