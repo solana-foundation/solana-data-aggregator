@@ -256,6 +256,11 @@ class TopLedger(BaseProvider):
         "network_avg_tps": NetworkMetricType.AVG_TPS,
     }
 
+    # Token accounts excluded from stablecoin circulating supply, read from
+    # solana.stablecoin_circulating_supply_accounts on the latest date in range,
+    # less the accounts query 15097 adds back to circulating supply.
+    STABLECOIN_EXCLUSIONS_QUERY_ID = 15383
+
     _POLL_INTERVAL = 2  # seconds between job status polls
     _POLL_TIMEOUT = 300  # max seconds to wait for a single job
 
@@ -373,6 +378,29 @@ class TopLedger(BaseProvider):
                 continue
             result.append({"date": row_date, "value": float(value)})
         return result
+
+    def fetch_stablecoin_circulating_supply_exclusions(self) -> List[Dict[str, Any]]:
+        """Return the token accounts Top Ledger excludes from Solana stablecoin circulating supply.
+
+        Reads the latest end-of-day snapshot from the past week. Top Ledger
+        reports no token name or label, so both are None.
+        """
+        end_date = datetime.date.today()
+        start_date = end_date - datetime.timedelta(days=7)
+        rows = self._run_query(
+            self.STABLECOIN_EXCLUSIONS_QUERY_ID,
+            start_date.isoformat(),
+            end_date.isoformat(),
+        )
+        return [
+            {
+                "token_name": None,
+                "token_address": row["mint"],
+                "excluded_address": row["token_account"],
+                "label": None,
+            }
+            for row in rows
+        ]
 
     def get_metric(
         self, metric: str, date: str, chain: str
