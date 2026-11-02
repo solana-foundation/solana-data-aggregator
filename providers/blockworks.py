@@ -96,7 +96,7 @@ class Blockworks(BaseProvider):
         "overview_fees": {
             "model": "blockchains",
             "series": SOLANA_NETWORK_ID,
-            "field": "fees-total-native",
+            "field": "transaction-fees-native",
         },
         # Chart 2000 ("Solana: Compute Unit Usage", Solana - Onchain Activity)
         "overview_compute_units": {
