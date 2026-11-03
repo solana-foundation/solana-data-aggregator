@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import tarfile
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -301,3 +303,162 @@ def test_get_metric_perps_returns_perps_metric() -> None:
         mock_factory.call_args.kwargs["metric_type"] == PerpsMetricType.TRADING_VOLUME
     )
     assert mock_factory.call_args.kwargs["value"] == 140.0
+
+
+_USDC_CONFIG = """export default {
+  solana: {
+    issued: ["EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"],
+    bridgedFromETH: [
+      "A9mUU4qviSctJVPJdBJWkb28deg915LYJKrzQ19ji3FM", // wormhole
+    ],
+    unreleased: [
+      "7VHUFJHWu2CuExkJcJrzhQPJ2oygupTWkL2A2For4BmE",
+      // "CcG5MeLP6b7maxMEcmucMkoeY9X37sJ5Wk7R97k9hJL9", // retired
+      "42qwJUTbKf3D8ULfWadUSjnHf6pkJ4H1VjCcfSKHvDTN",  // wormhole to FOGO
+    ], // study the holders page
+  },
+  tron: {
+    issued: ["TEkxiTehnzSmSe2XqrBj4w32RUN966rdz8"],
+    unreleased: ["TKHuVq1oKVruCGLvqVexFs6dawKv6fQgFs"],
+  },
+};
+"""
+
+_USDC_INDEX = """const adapter = {
+  solana: {
+    minted: solanaMintedOrBridged(chainContracts.solana.issued),
+    unreleased: solanaUnreleased(),
+  },
+};
+"""
+
+_USDT_INDEX = """const chainContracts = {
+  solana: {
+    issued: ["Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"],
+    unreleased: ["Q6XprfkF8RQQKoQVG33xT88H7wi8Uk1B1CC7YAs69Gi", "A3znyaRYUvi7GbQv1pp9CqqiVo7anddU9rPKFH55V28R"],
+  },
+  /*
+  solana: {
+    issued: ["Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"],
+    unreleased: ["DBD8hAwLDRQkTsu6EqviaYNGKPnsAMmQonxf7AH8ZcFY"],
+  },
+  */
+};
+"""
+
+_EURC_INDEX = """const chainContracts = {
+  solana: {
+    issued: ["HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr"],
+  },
+};
+"""
+
+_EURC_INDEX_UNRELEASED = """const chainContracts = {
+  solana: {
+    issued: ["HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr"],
+    unreleased: ["7VHUFJHWu2CuExkJcJrzhQPJ2oygupTWkL2A2For4BmE"],
+  },
+};
+"""
+
+_EURC_SOLANA = """const PREMINT_ACCOUNTS_URL =
+  "https://raw.githubusercontent.com/circlefin/centre-ecosystem/master/eurc/solana/minters.json";
+"""
+
+_EURC_REGISTRY = {
+    "devnet": ["FvtKTZ5EWdCTPAXmYUmqhZryHh2ZXSgvGhZT37TqcSep"],
+    "mainnet": ["89LjSs8wP3EZNCKcs8aCxngQaEuyhUyGE4STkFwNgRT3"],
+}
+
+
+_PEGGED_ASSETS_FILES = {
+    "src/adapters/peggedAssets/usd-coin/config.ts": _USDC_CONFIG,
+    "src/adapters/peggedAssets/usd-coin/index.ts": _USDC_INDEX,
+    "src/adapters/peggedAssets/tether/index.ts": _USDT_INDEX,
+    "src/adapters/peggedAssets/eurc/index.ts": _EURC_INDEX,
+    "src/adapters/peggedAssets/eurc/solana.ts": _EURC_SOLANA,
+}
+
+
+def _pegged_assets_tarball(files: dict = _PEGGED_ASSETS_FILES) -> bytes:
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        for path, content in files.items():
+            data = content.encode()
+            info = tarfile.TarInfo(f"peggedassets-server-abc123/{path}")
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+    return buf.getvalue()
+
+
+def test_fetch_stablecoin_exclusions_parses_solana_unreleased_lists() -> None:
+    provider = DefiLlama()
+    tarball_resp = MagicMock()
+    tarball_resp.content = _pegged_assets_tarball()
+    tarball_resp.raise_for_status = MagicMock()
+
+    def fake_get(url, **kwargs):
+        if url.startswith("https://codeload.github.com/"):
+            return tarball_resp
+        return _make_mock_resp(_EURC_REGISTRY)
+
+    with patch.object(provider._session, "get", side_effect=fake_get) as mock_get:
+        rows = provider.fetch_stablecoin_circulating_supply_exclusions()
+
+    tarball_url = mock_get.call_args_list[0].args[0]
+    assert tarball_url.endswith("DefiLlama/peggedassets-server/tar.gz/HEAD")
+    usdc = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    usdt = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+    eurc = "HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr"
+    # Bridged mints, commented-out addresses, the commented-out block and
+    # other chains' lists are not exclusions.
+    assert sorted(rows, key=lambda r: r["excluded_address"]) == [
+        {
+            "mint_address": usdc,
+            "excluded_address": "42qwJUTbKf3D8ULfWadUSjnHf6pkJ4H1VjCcfSKHvDTN",
+            "label": "wormhole to FOGO",
+        },
+        {
+            "mint_address": usdc,
+            "excluded_address": "7VHUFJHWu2CuExkJcJrzhQPJ2oygupTWkL2A2For4BmE",
+            "label": None,
+        },
+        {
+            "mint_address": eurc,
+            "excluded_address": "89LjSs8wP3EZNCKcs8aCxngQaEuyhUyGE4STkFwNgRT3",
+            "label": "Circle pre-mint",
+        },
+        {
+            "mint_address": usdt,
+            "excluded_address": "A3znyaRYUvi7GbQv1pp9CqqiVo7anddU9rPKFH55V28R",
+            "label": None,
+        },
+        {
+            "mint_address": usdt,
+            "excluded_address": "Q6XprfkF8RQQKoQVG33xT88H7wi8Uk1B1CC7YAs69Gi",
+            "label": None,
+        },
+    ]
+
+
+def test_fetch_stablecoin_exclusions_without_eurc_registry() -> None:
+    # Before 2026-10-26 the EURC adapter listed its owner wallet as `unreleased`
+    # and had no solana.ts; the registry is then not fetched.
+    files = dict(_PEGGED_ASSETS_FILES)
+    del files["src/adapters/peggedAssets/eurc/solana.ts"]
+    files["src/adapters/peggedAssets/eurc/index.ts"] = _EURC_INDEX_UNRELEASED
+    provider = DefiLlama()
+    tarball_resp = MagicMock()
+    tarball_resp.content = _pegged_assets_tarball(files)
+    tarball_resp.raise_for_status = MagicMock()
+
+    with patch.object(provider._session, "get", return_value=tarball_resp) as mock_get:
+        rows = provider.fetch_stablecoin_circulating_supply_exclusions()
+
+    assert mock_get.call_count == 1
+    assert {
+        "mint_address": "HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr",
+        "excluded_address": "7VHUFJHWu2CuExkJcJrzhQPJ2oygupTWkL2A2For4BmE",
+        "label": None,
+    } in rows
+    assert len(rows) == 5

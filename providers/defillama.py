@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import datetime
+import io
 import os
-from typing import Any, Dict, List, Optional
+import re
+import tarfile
+from typing import Any, Dict, Iterator, List, Optional
 
 import requests
 
@@ -19,6 +22,11 @@ from providers.base import BaseProvider
 # protocol-breakdown charts). GMX Solana is GmTrade. Pacifica is excluded: DefiLlama
 # tracks it as off-chain, not Solana.
 PERP_VENUES = ("Jupiter Perpetual Exchange", "Phoenix Perp", "GMX Solana")
+
+# DefiLlama's stablecoin adapters, always read from the default branch.
+PEGGED_ASSETS_TARBALL_URL = (
+    "https://codeload.github.com/DefiLlama/peggedassets-server/tar.gz/HEAD"
+)
 
 
 class DefiLlama(BaseProvider):
@@ -169,6 +177,88 @@ class DefiLlama(BaseProvider):
 
         self._lending_daily = daily
         return daily
+
+    @staticmethod
+    def _solana_blocks(source: str) -> Iterator[str]:
+        """Yield the body of each `solana: { ... }` object in an adapter source file."""
+        for match in re.finditer(r"\bsolana\s*:\s*\{", source):
+            start, depth = match.end() - 1, 0
+            for i in range(start, len(source)):
+                depth += {"{": 1, "}": -1}.get(source[i], 0)
+                if depth == 0:
+                    yield source[start : i + 1]
+                    break
+
+    def fetch_stablecoin_circulating_supply_exclusions(self) -> List[Dict[str, Any]]:
+        """Return the Solana addresses DefiLlama excludes from stablecoin circulating supply.
+
+        Parses the `unreleased` / `reserves` lists in each adapter's `solana`
+        config in DefiLlama/peggedassets-server; these are owner wallets, and a
+        trailing `// comment` is the label. EURC's pre-mint token accounts are
+        not in the repo: its adapter reads them from Circle's registry, so that
+        registry is fetched too when the adapter uses it.
+        """
+        resp = self._session.get(PEGGED_ASSETS_TARBALL_URL, timeout=60)
+        resp.raise_for_status()
+        files: Dict[str, str] = {}
+        with tarfile.open(fileobj=io.BytesIO(resp.content), mode="r:gz") as tar:
+            for member in tar.getmembers():
+                if member.isfile() and member.name.endswith((".ts", ".js")):
+                    # Drop the "peggedassets-server-<ref>/" prefix
+                    path = member.name.split("/", 1)[1]
+                    files[path] = tar.extractfile(member).read().decode()
+
+        exclusions: Dict[tuple[str, str], Dict[str, Any]] = {}
+        mints: Dict[str, str] = {}
+        for path, source in files.items():
+            match = re.fullmatch(r"src/adapters/peggedAssets/([^/]+)/[^/]+", path)
+            if not match:
+                continue
+            folder = match.group(1)
+            source = re.sub(r"/\*.*?\*/", "", source, flags=re.S)
+            for block in self._solana_blocks(source):
+                lists: Dict[str, List[tuple[str, Optional[str]]]] = {}
+                for key, body in re.findall(
+                    r"\b(issued|unreleased|reserves)\s*:\s*\[([^\]]*)\]", block
+                ):
+                    for line in body.splitlines():
+                        if line.strip().startswith("//"):
+                            continue
+                        comment = re.search(r"//\s*(.+?)\s*$", line)
+                        for address in re.findall(
+                            r"[\"']([1-9A-HJ-NP-Za-km-z]{32,44})[\"']", line
+                        ):
+                            lists.setdefault(key, []).append(
+                                (address, comment.group(1) if comment else None)
+                            )
+                if not lists.get("issued"):
+                    continue
+                mint = lists["issued"][0][0]
+                mints[folder] = mint
+                for address, label in lists.get("unreleased", []) + lists.get(
+                    "reserves", []
+                ):
+                    exclusions[(mint, address)] = {
+                        "mint_address": mint,
+                        "excluded_address": address,
+                        "label": label,
+                    }
+
+        # Skipped when the EURC adapter doesn't read the registry. Before
+        # 2026-10-26 it listed its owner wallet as `unreleased`, parsed above.
+        registry = re.search(
+            r'PREMINT_ACCOUNTS_URL\s*=\s*"([^"]+)"',
+            files.get("src/adapters/peggedAssets/eurc/solana.ts", ""),
+        )
+        if registry and "eurc" in mints:
+            for address in self._get(registry.group(1))["mainnet"]:
+                exclusions[(mints["eurc"], address)] = {
+                    "mint_address": mints["eurc"],
+                    "excluded_address": address,
+                    "label": "Circle pre-mint",
+                }
+
+        return list(exclusions.values())
 
     # -- BaseProvider interface ---------------------------------------------
 

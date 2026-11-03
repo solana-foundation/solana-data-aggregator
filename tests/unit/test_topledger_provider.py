@@ -1029,6 +1029,42 @@ def test_get_metric_network_avg_tps_returns_network_model() -> None:
     assert result.value == pytest.approx(405.09)
 
 
+# -- fetch_stablecoin_circulating_supply_exclusions ----------------------------
+
+
+def test_fetch_stablecoin_exclusions_maps_token_accounts() -> None:
+    raw = [
+        {
+            "block_date": "2026-11-01",
+            "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "token_account": "F8qm5brrS3dHUpNem15Pcur3AJr8rct7apTRLeZ6tLhi",
+        },
+    ]
+    provider = _make_provider()
+    with (
+        patch.object(
+            provider._session, "post", return_value=_immediate_result_resp(raw)
+        ) as mock_post,
+        patch("providers.topledger.datetime") as mock_datetime,
+    ):
+        mock_datetime.date.today.return_value = datetime.date(2026, 11, 2)
+        mock_datetime.timedelta = datetime.timedelta
+        rows = provider.fetch_stablecoin_circulating_supply_exclusions()
+
+    assert rows == [
+        {
+            "mint_address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "excluded_address": "F8qm5brrS3dHUpNem15Pcur3AJr8rct7apTRLeZ6tLhi",
+            "label": None,
+        }
+    ]
+    assert mock_post.call_args.args[0].endswith("/api/queries/15383/results")
+    assert mock_post.call_args.kwargs["json"]["parameters"] == {
+        "start_date": "2026-10-26",
+        "end_date": "2026-11-02",
+    }
+
+
 # -- constructor ---------------------------------------------------------------
 
 
