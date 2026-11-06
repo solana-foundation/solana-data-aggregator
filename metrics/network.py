@@ -18,6 +18,7 @@ class NetworkMetricType(str, Enum):
     VALIDATOR_COUNT = "validator_count"
     TOP_3_ASN_SHARE = "top_3_asn_share"
     AVG_TPS = "avg_tps"
+    BAM_STAKE_SHARE = "bam_stake_share"
 
 
 _METRIC_METADATA: dict[NetworkMetricType, dict[str, str]] = {
@@ -45,6 +46,11 @@ _METRIC_METADATA: dict[NetworkMetricType, dict[str, str]] = {
         "name": "Average TPS",
         "unit": "TPS",
         "description": "Daily average transactions per second on Solana (non-vote transactions, successful and failed, / 86,400)",
+    },
+    NetworkMetricType.BAM_STAKE_SHARE: {
+        "name": "BAM Stake Share",
+        "unit": "Percent",
+        "description": "Percentage of total Solana stake held by validators connected to Jito's Block Assembly Marketplace (BAM) daily",
     },
 }
 
