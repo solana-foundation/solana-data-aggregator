@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 
 from metrics.defi import Defi, DefiMetricType
-from metrics.lending import Lending, LendingMetricType
+from metrics.lending import Lending
 from metrics.overview import Overview, OverviewMetricType
 from metrics.perps import Perps, PerpsMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
@@ -48,14 +48,14 @@ class Blockworks(BaseProvider):
             "field": "circulatingSupplyUSD",
         },
         "stablecoin_transfer_volume": {
-            "model": "blockchains",
-            "series": SOLANA_NETWORK_ID,
-            "field": "stablecoin-transfer-volume-usd",
+            "model": "stablecoins-by-chain",
+            "series": "solana",
+            "field": "transferVolumeUSD",
         },
         "stablecoin_transfer_count": {
-            "model": "blockchains",
-            "series": SOLANA_NETWORK_ID,
-            "field": "stablecoin-transfer-count",
+            "model": "stablecoins-by-chain",
+            "series": "solana",
+            "field": "transferCount",
         },
         "stablecoin_active_addresses": {
             "model": "blockchains",
@@ -98,19 +98,19 @@ class Blockworks(BaseProvider):
             "series": SOLANA_NETWORK_ID,
             "field": "transaction-fees-native",
         },
-        # Chart 2000 ("Solana: Compute Unit Usage", Solana - Onchain Activity)
-        "overview_compute_units": {
-            "chart_id": 2000,
-            "date_field": "block_date",
-            "value_field": "avg_total_cu_per_block",
-        },
-        # Chart 8213 ("Solana: DEX Aggregator Volume by DEX"): one row per DEX per day
-        "defi_dex_count": {
-            "chart_id": 8213,
-            "date_field": "block_date",
-            "count_distinct": "exchange_id",
-            "methodology": "Top spot DEXs that aggregators route to.",
-        },
+        # Chart 2000 ("Solana: Compute Unit Usage") returns 404 from the Charts API.
+        # "overview_compute_units": {
+        #     "chart_id": 2000,
+        #     "date_field": "block_date",
+        #     "value_field": "avg_total_cu_per_block",
+        # },
+        # Chart 8213 ("Solana: DEX Aggregator Volume by DEX") returns 404.
+        # "defi_dex_count": {
+        #     "chart_id": 8213,
+        #     "date_field": "block_date",
+        #     "count_distinct": "exchange_id",
+        #     "methodology": "Top spot DEXs that aggregators route to.",
+        # },
         # Perps: per-venue perp-dex-protocols series, summed across PERP_VENUES
         "perps_trading_volume": {
             "model": "perp-dex-protocols",
@@ -134,31 +134,29 @@ class Blockworks(BaseProvider):
             # Venues with volume > 0 that day
             "count_positive": True,
         },
-        # Chart 15954 ("Solana: Lending Total Deposits", Solana - Lending
-        # dashboard): one row per day with totals and <protocol>_deposit /
-        # <protocol>_borrow columns (Kamino, Jupiter Lend).
-        "lending_total_deposits": {
-            "chart_id": 15954,
-            "value_field": "total_deposit",
-        },
-        "lending_total_borrowed": {
-            "chart_id": 15954,
-            "value_field": "total_borrow",
-        },
-        "lending_utilization_rate": {
-            "chart_id": 15954,
-            # borrow / deposit as a 0-100 percentage
-            "ratio_fields": ("total_borrow", "total_deposit"),
-            "value_scale": 100,
-        },
-        "lending_protocol_count": {
-            "chart_id": 15954,
-            # Protocols with deposits > 0; a protocol Blockworks adds later is
-            # counted without a code change
-            "count_positive_suffix": "_deposit",
-            "count_exclude_prefixes": ("total_",),
-            "count_exclude_suffixes": ("_stablecoin_deposit",),
-        },
+        # Chart 15954 ("Solana: Lending Total Deposits") returns 404.
+        # "lending_total_deposits": {
+        #     "chart_id": 15954,
+        #     "value_field": "total_deposit",
+        # },
+        # "lending_total_borrowed": {
+        #     "chart_id": 15954,
+        #     "value_field": "total_borrow",
+        # },
+        # "lending_utilization_rate": {
+        #     "chart_id": 15954,
+        #     # borrow / deposit as a 0-100 percentage
+        #     "ratio_fields": ("total_borrow", "total_deposit"),
+        #     "value_scale": 100,
+        # },
+        # "lending_protocol_count": {
+        #     "chart_id": 15954,
+        #     # Protocols with deposits > 0; a protocol Blockworks adds later is
+        #     # counted without a code change
+        #     "count_positive_suffix": "_deposit",
+        #     "count_exclude_prefixes": ("total_",),
+        #     "count_exclude_suffixes": ("_stablecoin_deposit",),
+        # },
     }
 
     BASE_URL = "https://api.blockworks.com"
@@ -413,7 +411,7 @@ class Blockworks(BaseProvider):
             "overview_fee_payers": OverviewMetricType.FEE_PAYERS,
             "overview_sol_price": OverviewMetricType.SOL_PRICE,
             "overview_fees": OverviewMetricType.FEES,
-            "overview_compute_units": OverviewMetricType.COMPUTE_UNITS,
+            # "overview_compute_units": OverviewMetricType.COMPUTE_UNITS,
             "overview_app_revenue": OverviewMetricType.APP_REVENUE,
             "overview_non_vote_tx_count_success": OverviewMetricType.TX_COUNT_NON_VOTE_SUCCESS,
             "overview_non_vote_tx_count_failed": OverviewMetricType.TX_COUNT_NON_VOTE_FAILED,
@@ -427,7 +425,7 @@ class Blockworks(BaseProvider):
 
         defi_metric_map = {
             "defi_dex_volume": DefiMetricType.DEX_VOLUME,
-            "defi_dex_count": DefiMetricType.DEX_COUNT,
+            # "defi_dex_count": DefiMetricType.DEX_COUNT,
         }
         if metric in defi_metric_map:
             return Defi.from_metric_type(
@@ -437,10 +435,10 @@ class Blockworks(BaseProvider):
             )
 
         lending_metric_map = {
-            "lending_total_deposits": LendingMetricType.TOTAL_DEPOSITS,
-            "lending_total_borrowed": LendingMetricType.TOTAL_BORROWED,
-            "lending_utilization_rate": LendingMetricType.UTILIZATION_RATE,
-            "lending_protocol_count": LendingMetricType.PROTOCOL_COUNT,
+            # "lending_total_deposits": LendingMetricType.TOTAL_DEPOSITS,
+            # "lending_total_borrowed": LendingMetricType.TOTAL_BORROWED,
+            # "lending_utilization_rate": LendingMetricType.UTILIZATION_RATE,
+            # "lending_protocol_count": LendingMetricType.PROTOCOL_COUNT,
         }
         if metric in lending_metric_map:
             return Lending.from_metric_type(
