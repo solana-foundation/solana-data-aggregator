@@ -265,3 +265,56 @@ class TestDateMatching:
             result = provider.get_metric("stablecoin_total_supply", "2026-01-01", "solana")
 
         assert result is sentinel_metric
+
+
+# ---------------------------------------------------------------------------
+# Allium — fetch_stablecoin_supply_by_token
+# ---------------------------------------------------------------------------
+
+_USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+_USDT = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+
+
+class TestFetchStablecoinSupplyByToken:
+    def test_groups_per_token_in_monthly_chunks(self, provider: Allium) -> None:
+        january = [
+            {
+                "date": "2026-01-31",
+                "token_address": _USDC,
+                "token_symbol": "USDC",
+                "usd": 7e9,
+            },
+        ]
+        february = [
+            {
+                "date": "2026-02-01",
+                "token_address": _USDT,
+                "token_symbol": "usdt",
+                "usd": 2e9,
+            },
+        ]
+        with patch.object(
+            provider, "_run_sql", side_effect=[january, february]
+        ) as run_sql:
+            rows = provider.fetch_stablecoin_supply_by_token("2026-01-31", "2026-02-01")
+
+        # One query per month, each limited to that month's part of the range
+        first_sql, second_sql = (call.args[0] for call in run_sql.call_args_list)
+        assert "solana.stablecoins.supply_distribution_daily" in first_sql
+        assert "GROUP BY date, token_address" in first_sql
+        assert "DATE '2026-01-31'" in first_sql
+        assert "DATE '2026-02-01'" in second_sql
+        assert rows == [
+            {
+                "date": "2026-01-31",
+                "mint_address": _USDC,
+                "token": "USDC",
+                "value": 7e9,
+            },
+            {
+                "date": "2026-02-01",
+                "mint_address": _USDT,
+                "token": "USDT",
+                "value": 2e9,
+            },
+        ]
