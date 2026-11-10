@@ -17,8 +17,9 @@ def stablecoin_supply_rows(
     """Normalize per-token supply rows to {"date", "mint_address", "token", "value"}.
 
     Shared by the providers' fetch_stablecoin_supply_by_token. Rows outside
-    [start_date, end_date] or without a mint or value are dropped; token is
-    upper-cased (None when the provider gives no symbol).
+    [start_date, end_date], without a mint, or without a positive value are
+    dropped (a supply of zero or less means no circulating supply, or bad
+    data); token is upper-cased (None when the provider gives no symbol).
     """
     result = []
     for row in raw_rows:
@@ -27,7 +28,7 @@ def stablecoin_supply_rows(
         value = row.get(value_field)
         if not row_date or not (start_date <= row_date <= end_date):
             continue
-        if not mint or value is None:
+        if not mint or value is None or float(value) <= 0:
             continue
         token = row.get(token_field)
         result.append(

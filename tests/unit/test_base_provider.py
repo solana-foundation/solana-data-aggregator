@@ -16,6 +16,8 @@ def test_stablecoin_supply_rows_normalizes_and_filters() -> None:
         {"d": "2025-12-31", "m": USDC, "t": "USDC", "v": 1},  # before range
         {"d": "2026-01-01", "m": None, "t": "X", "v": 1},  # no mint
         {"d": "2026-01-01", "m": EURC, "t": "EURC", "v": None},  # no value
+        {"d": "2026-01-01", "m": EURC, "t": "EURC", "v": 0},  # zero supply
+        {"d": "2026-01-02", "m": EURC, "t": "EURC", "v": -8.2e6},  # negative supply
     ]
     rows = stablecoin_supply_rows(
         raw,
