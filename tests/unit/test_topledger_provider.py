@@ -1042,3 +1042,41 @@ def test_constructor_reads_api_key_from_env(monkeypatch) -> None:
     monkeypatch.setenv("TOPLEDGER_API_KEY", "env-key")
     provider = TopLedger()
     assert provider.api_key == "env-key"
+
+
+def test_fetch_stablecoin_supply_by_token_reads_query_15391() -> None:
+    usdc = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    usdt = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+    rows = [
+        {
+            "block_date": "2026-07-01",
+            "mint_address": usdc,
+            "token_symbol": "USDC",
+            "circulating_supply_usd": 6.7e9,
+            "total_supply_usd": 8.4e9,
+        },
+        {
+            "block_date": "2026-07-01",
+            "mint_address": usdt,
+            "token_symbol": "usdt",
+            "circulating_supply_usd": 2.4e9,
+            "total_supply_usd": 3.8e9,
+        },
+        {  # outside the requested range
+            "block_date": "2026-07-04",
+            "mint_address": usdc,
+            "token_symbol": "USDC",
+            "circulating_supply_usd": 1.0,
+            "total_supply_usd": 1.0,
+        },
+    ]
+    provider = _make_provider()
+    mock_post = MagicMock(return_value=_immediate_result_resp(rows))
+    with patch.object(provider._session, "post", mock_post):
+        result = provider.fetch_stablecoin_supply_by_token(_START, _END)
+
+    assert "/api/queries/15391/results" in mock_post.call_args.args[0]
+    assert result == [
+        {"date": "2026-07-01", "mint_address": usdc, "token": "USDC", "value": 6.7e9},
+        {"date": "2026-07-01", "mint_address": usdt, "token": "USDT", "value": 2.4e9},
+    ]
