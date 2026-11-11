@@ -14,7 +14,7 @@ from metrics.network import Network, NetworkMetricType
 from metrics.overview import Overview, OverviewMetricType
 from metrics.perps import Perps, PerpsMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
-from providers.base import BaseProvider
+from providers.base import BaseProvider, stablecoin_supply_rows
 
 
 class TopLedger(BaseProvider):
@@ -259,6 +259,10 @@ class TopLedger(BaseProvider):
     _POLL_INTERVAL = 2  # seconds between job status polls
     _POLL_TIMEOUT = 300  # max seconds to wait for a single job
 
+    # Per-stablecoin daily breakdown behind query 15090: summed per day,
+    # circulating_supply_usd equals 15090's marketcap.
+    STABLECOIN_SUPPLY_BY_TOKEN_QUERY_ID = 15391
+
     def __init__(self, *, api_key: Optional[str] = None) -> None:
         resolved = api_key or os.environ.get("TOPLEDGER_API_KEY")
         if not resolved:
@@ -373,6 +377,27 @@ class TopLedger(BaseProvider):
                 continue
             result.append({"date": row_date, "value": float(value)})
         return result
+
+    def fetch_stablecoin_supply_by_token(
+        self, start_date: str, end_date: str
+    ) -> List[Dict[str, Any]]:
+        """Circulating supply (USD) per Solana stablecoin per day, both dates inclusive.
+
+        Returns {"date", "mint_address", "token", "value"} records; summing value
+        per date gives the stablecoin_circulating_supply metric.
+        """
+        raw_rows = self._run_query(
+            self.STABLECOIN_SUPPLY_BY_TOKEN_QUERY_ID, start_date, end_date
+        )
+        return stablecoin_supply_rows(
+            raw_rows,
+            date_field="block_date",
+            mint_field="mint_address",
+            token_field="token_symbol",
+            value_field="circulating_supply_usd",
+            start_date=start_date,
+            end_date=end_date,
+        )
 
     def get_metric(
         self, metric: str, date: str, chain: str

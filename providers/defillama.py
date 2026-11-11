@@ -13,7 +13,7 @@ from metrics.lending import Lending, LendingMetricType
 from metrics.overview import Overview, OverviewMetricType
 from metrics.perps import Perps, PerpsMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
-from providers.base import BaseProvider
+from providers.base import BaseProvider, stablecoin_supply_rows
 
 # Solana perp venues included in the perps metrics (DefiLlama protocol names in the
 # protocol-breakdown charts). GMX Solana is GmTrade. Pacifica is excluded: DefiLlama
@@ -94,6 +94,7 @@ class DefiLlama(BaseProvider):
     LENDING_CHAIN = "Solana"
 
     BASE_URL = "https://pro-api.llama.fi"
+    COINGECKO_COINS_LIST_URL = "https://api.coingecko.com/api/v3/coins/list"
 
     def __init__(self, *, api_key: Optional[str] = None) -> None:
         resolved_api_key = api_key or os.environ.get("DEFILLAMA_API_KEY") or ""
@@ -169,6 +170,78 @@ class DefiLlama(BaseProvider):
 
         self._lending_daily = daily
         return daily
+
+    def _coingecko_solana_mints(self) -> Dict[str, str]:
+        """CoinGecko id -> Solana mint, from CoinGecko's public coin list."""
+        resp = self._session.get(
+            self.COINGECKO_COINS_LIST_URL,
+            params={"include_platform": "true"},
+            timeout=120,
+        )
+        resp.raise_for_status()
+        return {
+            coin["id"]: coin["platforms"]["solana"]
+            for coin in resp.json()
+            if (coin.get("platforms") or {}).get("solana")
+        }
+
+    def fetch_stablecoin_supply_by_token(
+        self, start_date: str, end_date: str
+    ) -> List[Dict[str, Any]]:
+        """Circulating supply (USD) per Solana stablecoin, both dates inclusive.
+
+        DefiLlama's per-asset list only carries the current amount, so this
+        returns rows for today (UTC) only, and nothing when today is outside
+        the range. Returns {"date", "mint_address", "token", "value"} records:
+        - The amount is in the peg currency, converted with DefiLlama's price.
+          Without a price, USD-pegged amounts are kept as is.
+        - DefiLlama has no mint addresses. Mints come from CoinGecko through
+          the asset's gecko_id.
+        Like the other providers, a stablecoin without a mint or a USD value
+        is dropped.
+        """
+        today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+        if not (start_date <= today <= end_date):
+            return []
+
+        assets = self._get(
+            f"{self.base_url}/stablecoins/stablecoins",
+            params={"includePrices": "true"},
+        ).get("peggedAssets", [])
+        mints = self._coingecko_solana_mints()
+
+        raw_rows = []
+        for asset in assets:
+            current = ((asset.get("chainCirculating") or {}).get("Solana") or {}).get(
+                "current"
+            ) or {}
+            amount = sum(v for v in current.values() if isinstance(v, (int, float)))
+            if amount <= 0:
+                continue
+            price = asset.get("price")
+            if isinstance(price, (int, float)):
+                value: Optional[float] = float(amount) * float(price)
+            elif asset.get("pegType") == "peggedUSD":
+                value = float(amount)
+            else:
+                value = None
+            raw_rows.append(
+                {
+                    "date": today,
+                    "mint": mints.get(asset.get("gecko_id")),
+                    "symbol": asset.get("symbol"),
+                    "value": value,
+                }
+            )
+        return stablecoin_supply_rows(
+            raw_rows,
+            date_field="date",
+            mint_field="mint",
+            token_field="symbol",
+            value_field="value",
+            start_date=start_date,
+            end_date=end_date,
+        )
 
     # -- BaseProvider interface ---------------------------------------------
 

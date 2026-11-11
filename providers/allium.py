@@ -14,7 +14,7 @@ from metrics.lending import Lending, LendingMetricType
 from metrics.network import Network, NetworkMetricType
 from metrics.overview import Overview, OverviewMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
-from providers.base import BaseProvider
+from providers.base import BaseProvider, stablecoin_supply_rows
 
 
 class Allium(BaseProvider):
@@ -365,6 +365,20 @@ class Allium(BaseProvider):
     BASE_URL = "https://api.allium.so/api/v1"
     SOL_TOKEN_ADDRESS = "So11111111111111111111111111111111111111112"
 
+    # Same source as stablecoin_circulating_supply, split per token instead of summed.
+    STABLECOIN_SUPPLY_BY_TOKEN_SQL = """
+        SELECT
+            date,
+            token_address,
+            MAX(token_symbol) AS token_symbol,
+            SUM(circulating_supply_usd) AS usd
+        FROM solana.stablecoins.supply_distribution_daily
+        WHERE date >= DATE '{start_date}'
+          AND date < DATEADD('day', 1, DATE '{end_date}')
+        GROUP BY date, token_address
+        ORDER BY date
+    """
+
     def __init__(self, *, api_key: Optional[str] = None) -> None:
         resolved_api_key = api_key or self._resolve_api_key()
         if not resolved_api_key:
@@ -499,6 +513,28 @@ class Allium(BaseProvider):
                 continue
             result.append({"date": row_date, "value": float(value)})
         return result
+
+    def fetch_stablecoin_supply_by_token(
+        self, start_date: str, end_date: str
+    ) -> List[Dict[str, Any]]:
+        """Circulating supply (USD) per Solana stablecoin per day, both dates inclusive.
+
+        Returns {"date", "mint_address", "token", "value"} records; summing value
+        per date gives the stablecoin_circulating_supply metric.
+        """
+        # Monthly chunks keep each query under the Explorer's 10,000-row limit.
+        raw_rows = self._run_sql_chunked(
+            self.STABLECOIN_SUPPLY_BY_TOKEN_SQL, start_date, end_date
+        )
+        return stablecoin_supply_rows(
+            raw_rows,
+            date_field="date",
+            mint_field="token_address",
+            token_field="token_symbol",
+            value_field="usd",
+            start_date=start_date,
+            end_date=end_date,
+        )
 
     def get_metric(
         self, metric: str, date: str, chain: str

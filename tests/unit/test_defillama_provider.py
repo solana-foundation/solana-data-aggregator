@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -301,3 +302,73 @@ def test_get_metric_perps_returns_perps_metric() -> None:
         mock_factory.call_args.kwargs["metric_type"] == PerpsMetricType.TRADING_VOLUME
     )
     assert mock_factory.call_args.kwargs["value"] == 140.0
+
+
+def _llama_asset(symbol, gecko_id, peg, solana_amount, price=None) -> dict:
+    return {
+        "symbol": symbol,
+        "gecko_id": gecko_id,
+        "pegType": peg,
+        "price": price,
+        "chainCirculating": (
+            {"Solana": {"current": {peg: solana_amount}}}
+            if solana_amount is not None
+            else {}
+        ),
+    }
+
+
+def test_fetch_stablecoin_supply_by_token_prices_and_matches_mints() -> None:
+    usdc = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    eurc = "HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr"
+    newusd = "NewUSD1111111111111111111111111111111111111"
+    xchf = "XCHF11111111111111111111111111111111111111"
+    provider = DefiLlama(api_key="")
+    today = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    assets = {
+        "peggedAssets": [
+            _llama_asset("USDC", "usd-coin", "peggedUSD", 1000, price=1.0),
+            _llama_asset("EURC", "euro-coin", "peggedEUR", 100, price=1.1),
+            _llama_asset("NEWUSD", "new-usd", "peggedUSD", 3),  # no price, USD peg
+            # Dropped, like Allium and Dune rows without a mint or a USD value:
+            _llama_asset("XEUR", None, "peggedEUR", 5, price=1.1),  # no mint
+            _llama_asset("XCHF", "x-chf", "peggedCHF", 7),  # no price, not USD
+            _llama_asset("GONE", "gone", "peggedUSD", 0, price=1.0),  # zero on Solana
+            _llama_asset("ETHONLY", "eth-only", "peggedUSD", None, price=1.0),
+        ]
+    }
+    coingecko = [
+        {"id": "usd-coin", "platforms": {"solana": usdc, "ethereum": "0xa0b8"}},
+        {"id": "euro-coin", "platforms": {"solana": eurc}},
+        {"id": "new-usd", "platforms": {"solana": newusd}},
+        {"id": "x-chf", "platforms": {"solana": xchf}},
+        {"id": "eth-only", "platforms": {"ethereum": "0xdead"}},
+    ]
+    with patch.object(
+        provider._session,
+        "get",
+        side_effect=[_make_mock_resp(assets), _make_mock_resp(coingecko)],
+    ):
+        rows = provider.fetch_stablecoin_supply_by_token("2000-01-01", "2999-12-31")
+
+    by_token = {r["token"]: r for r in rows}
+    assert set(by_token) == {"USDC", "EURC", "NEWUSD"}
+    assert all(r["date"] == today for r in rows)
+    assert by_token["USDC"] == {
+        "date": today,
+        "mint_address": usdc,
+        "token": "USDC",
+        "value": 1000.0,
+    }
+    assert by_token["EURC"]["mint_address"] == eurc
+    assert by_token["EURC"]["value"] == pytest.approx(110.0)
+    assert by_token["NEWUSD"]["mint_address"] == newusd
+    assert by_token["NEWUSD"]["value"] == 3.0
+
+
+def test_fetch_stablecoin_supply_by_token_is_empty_outside_today() -> None:
+    provider = DefiLlama(api_key="")
+    with patch.object(provider._session, "get") as mock_get:
+        rows = provider.fetch_stablecoin_supply_by_token("2020-01-01", "2020-01-02")
+    assert rows == []
+    mock_get.assert_not_called()
