@@ -396,3 +396,122 @@ def test_stablecoin_volume_rejects_duplicate_daily_rows():
     provider = _volume_provider([row, row])
     with pytest.raises(ValueError, match="Duplicate daily"):
         provider.fetch_rows("stablecoin_transfer_volume", "2025-01-01", "2025-01-01")
+
+
+def _count_row(entity, date, value, asset=False, chain="solana"):
+    return {
+        "asset_id" if asset else "project_id": entity,
+        "timestamp": date,
+        "chain_id": chain,
+        "value": value,
+    }
+
+
+def _count_get(rows, assets=None):
+    def get(endpoint, *, params=None):
+        if endpoint.startswith("/market-sectors/"):
+            ids = {
+                "exchange": ["orca", "meteora", "jupiter", "perps"],
+                "derivatives": ["perps"],
+                "dex-aggregators": ["jupiter"],
+            }
+            return {
+                "data": {
+                    "projects": [
+                        {"project_id": p} for p in ids[endpoint.split("/")[-1]]
+                    ]
+                }
+            }
+        if endpoint == "/assets":
+            return {"data": assets, "total_count": len(assets)}
+        return {"data": rows}
+
+    return get
+
+
+def test_dex_count_uses_positive_spot_protocols_and_deduplicates():
+    provider = TokenTerminal(api_key="test-key")
+    rows = [
+        _count_row("orca", "2026-11-09", "10"),
+        _count_row("orca", "2026-11-09", 15),
+        _count_row("meteora", "2026-11-09", 0),
+        _count_row("jupiter", "2026-11-09", 100),
+        _count_row("perps", "2026-11-09", 100),
+        _count_row("nonexchange", "2026-11-09", 100),
+        _count_row("orca", "2026-11-10", 0),
+        _count_row("orca", "2026-11-08", 10),
+    ]
+    with patch.object(provider, "_get", side_effect=_count_get(rows)):
+        assert provider.fetch_rows("defi_dex_count", "2026-11-09", "2026-11-10") == [
+            {"date": "2026-11-09", "value": 1},
+            {"date": "2026-11-10", "value": 0},
+        ]
+        result = provider.get_metric("defi_dex_count", "2026-11-09", "solana")
+        assert result.metric_type == DefiMetricType.DEX_COUNT
+
+
+def test_stablecoin_count_uses_cap_not_activity_and_includes_bridged():
+    assets = [
+        {
+            "asset_id": asset,
+            "reference_asset_id": peg,
+            "addresses": [
+                {"chain_id": chain, "token_address": asset, "bridged": bridged}
+            ],
+        }
+        for asset, peg, chain, bridged in [
+            ("usdc", "usdollar", "solana", False),
+            ("dai", "usdollar", "solana", True),
+            ("usdt", "usdollar", "solana", False),
+            ("eurc", "euro", "solana", False),
+            ("other", "usdollar", "ethereum", False),
+        ]
+    ]
+    rows = [
+        _count_row(a, "2026-11-09", v, asset=True)
+        for a, v in [
+            ("usdc", 10),
+            ("usdc", 20),
+            ("dai", 1),
+            ("usdt", 0),
+            ("eurc", 5),
+            ("other", 5),
+        ]
+    ]
+    provider = TokenTerminal(api_key="test-key")
+    with patch.object(provider, "_get", side_effect=_count_get(rows, assets)) as get:
+        result = provider.get_metric("stablecoin_count", "2026-11-09", "solana")
+    assert result.value == 2
+    assert result.metric_type == StablecoinMetricType.COUNT
+    params = get.call_args.kwargs["params"]
+    assert params["asset_ids"] == "dai,usdc,usdt"
+    assert params["assets_bridged"] == "true"
+    assert get.call_args.args[0] == "/metrics/asset_market_cap_circulating"
+
+
+@pytest.mark.parametrize("metric", ["defi_dex_count", "stablecoin_count"])
+def test_count_partial_metadata_errors_fail(metric):
+    provider = TokenTerminal(api_key="test-key")
+    with patch.object(
+        provider, "_get", return_value={"data": [], "errors": [{"code": "NOT_FOUND"}]}
+    ):
+        with pytest.raises(ValueError, match="Incomplete"):
+            provider.fetch_rows(metric, "2026-11-09", "2026-11-10")
+
+
+@pytest.mark.parametrize("value", [None, float("nan"), -1])
+def test_count_invalid_values_are_not_zero(value):
+    provider = TokenTerminal(api_key="test-key")
+    with patch.object(
+        provider,
+        "_get",
+        side_effect=_count_get([_count_row("orca", "2026-11-09", value)]),
+    ):
+        with pytest.raises(ValueError):
+            provider.fetch_rows("defi_dex_count", "2026-11-09", "2026-11-09")
+
+
+def test_count_empty_response_does_not_invent_zero_days():
+    provider = TokenTerminal(api_key="test-key")
+    with patch.object(provider, "_get", side_effect=_count_get([])):
+        assert provider.fetch_rows("defi_dex_count", "2026-11-09", "2026-11-10") == []

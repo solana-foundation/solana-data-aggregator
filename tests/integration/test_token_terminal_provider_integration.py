@@ -138,3 +138,16 @@ def test_stablecoin_transfer_volume_live_api(date: str) -> None:
     assert metric.metric_type == StablecoinMetricType.TRANSFER_VOLUME
     assert metric.unit == "USD"
     assert metric.value > 0
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("metric", ["defi_dex_count", "stablecoin_count"])
+@pytest.mark.parametrize("date", ["2025-01-01", "2026-11-15"])
+def test_positive_coverage_counts_live_api(metric: str, date: str) -> None:
+    if not API_KEY:
+        pytest.skip("Set TOKEN_TERMINAL_API_KEY to run live integration tests.")
+    provider = TokenTerminal(api_key=API_KEY)
+    result = provider.get_metric(metric, date, "solana")
+    assert result is not None
+    assert result.value > 0
+    assert result.value == int(result.value)

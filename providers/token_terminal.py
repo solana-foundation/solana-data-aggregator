@@ -125,6 +125,22 @@ class TokenTerminal(BaseProvider):
                 "and assets without served volume are excluded."
             ),
         },
+        "defi_dex_count": {
+            "metric_id": "trading_volume",
+            "methodology": (
+                "Number of Token Terminal-covered exchange protocols with "
+                "positive spot trading volume on Solana that day, excluding "
+                "derivatives and DEX aggregators. Each project is counted once."
+            ),
+        },
+        "stablecoin_count": {
+            "metric_id": "asset_market_cap_circulating",
+            "methodology": (
+                "Number of Token Terminal-covered USD-pegged stablecoin assets "
+                "with positive circulating market cap on Solana that day. "
+                "Includes bridged deployments; each asset is counted once."
+            ),
+        },
         "defi_dex_volume": {
             "metric_id": "ecosystem_dex_trading_volume",
             "date_field": "timestamp",
@@ -165,6 +181,7 @@ class TokenTerminal(BaseProvider):
     _STABLECOIN_METRIC_TYPE_MAP: Dict[str, StablecoinMetricType] = {
         "stablecoin_circulating_supply": StablecoinMetricType.CIRCULATING_SUPPLY,
         "stablecoin_transfer_volume": StablecoinMetricType.TRANSFER_VOLUME,
+        "stablecoin_count": StablecoinMetricType.COUNT,
     }
 
     _DEFI_METRIC_TYPE_MAP: Dict[str, DefiMetricType] = {
@@ -325,6 +342,98 @@ class TokenTerminal(BaseProvider):
         self._stablecoin_volume_cache = result
         return result
 
+    @staticmethod
+    def _count_data(body: Any) -> Any:
+        if not isinstance(body, dict) or body.get("errors") or "data" not in body:
+            raise ValueError("Incomplete Token Terminal count response")
+        return body["data"]
+
+    def _fetch_count_rows(
+        self, metric: str, start_date: str, end_date: str
+    ) -> List[Dict[str, Any]]:
+        params = {"chain_ids": "solana", "start": start_date, "end": end_date}
+        if metric == "defi_dex_count":
+            sectors = {}
+            for sector in ("exchange", "derivatives", "dex-aggregators"):
+                data = self._count_data(self._get(f"/market-sectors/{sector}"))
+                projects = data.get("projects") if isinstance(data, dict) else None
+                if not isinstance(projects, list):
+                    raise ValueError("Missing market-sector project list")
+                sectors[sector] = {row["project_id"] for row in projects}
+            universe = (
+                sectors["exchange"]
+                - sectors["derivatives"]
+                - sectors["dex-aggregators"]
+            )
+            entity_field = "project_id"
+            params["project_ids"] = "all"
+        else:
+            universe = set()
+            offset = 0
+            while True:
+                body = self._get(
+                    "/assets",
+                    params={
+                        "asset_types": "stablecoin",
+                        "reference_asset_ids": "usdollar",
+                        "limit": 1000,
+                        "offset": offset,
+                    },
+                )
+                page = self._count_data(body)
+                if not isinstance(page, list):
+                    raise ValueError("Missing stablecoin asset list")
+                for asset in page:
+                    if asset.get("reference_asset_id") == "usdollar" and any(
+                        address.get("chain_id") == "solana"
+                        for address in asset.get("addresses", [])
+                    ):
+                        universe.add(asset["asset_id"])
+                offset += len(page)
+                total = body.get("total_count")
+                if not page or (isinstance(total, int) and offset >= total):
+                    break
+                if total is None and len(page) < 1000:
+                    break
+            if not universe or len(universe) > 300:
+                raise ValueError(
+                    "Stablecoin count universe is empty or exceeds API limit"
+                )
+            entity_field = "asset_id"
+            params["asset_ids"] = ",".join(sorted(universe))
+            params["assets_bridged"] = "true"
+
+        rows = self._count_data(
+            self._get(
+                f"/metrics/{self.METRIC_MAP[metric]['metric_id']}",
+                params=params,
+            )
+        )
+        if not isinstance(rows, list):
+            raise ValueError("Missing count metric rows")
+        daily: Dict[str, set[str]] = {}
+        for row in rows:
+            date = str(row.get("timestamp", ""))[:10]
+            if not start_date <= date <= end_date:
+                continue
+            if row.get("chain_id") != "solana":
+                raise ValueError("Unexpected chain in count metric rows")
+            entity = row[entity_field]
+            if entity not in universe:
+                continue
+            if row.get("value") is None:
+                raise ValueError("Missing count metric value")
+            value = float(row["value"])
+            if not math.isfinite(value) or value < 0:
+                raise ValueError("Invalid count metric value")
+            daily.setdefault(date, set())
+            if value > 0:
+                daily[date].add(entity)
+        return [
+            {"date": date, "value": len(entities)}
+            for date, entities in sorted(daily.items())
+        ]
+
     # -- BaseProvider interface ---------------------------------------------
 
     @property
@@ -336,6 +445,8 @@ class TokenTerminal(BaseProvider):
     ) -> List[Dict[str, Any]]:
         """Return normalized {"date": str, "value": float} records for the given range (both dates inclusive)."""
         config = self.METRIC_MAP[metric]
+        if metric in ("defi_dex_count", "stablecoin_count"):
+            return self._fetch_count_rows(metric, start_date, end_date)
         if metric == "stablecoin_transfer_volume":
             return [
                 row
