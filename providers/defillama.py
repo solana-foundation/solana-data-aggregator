@@ -95,6 +95,9 @@ class DefiLlama(BaseProvider):
 
     BASE_URL = "https://pro-api.llama.fi"
 
+    # Most points one /coins/chart request asks for (the API itself allows up to 500).
+    COINS_CHART_MAX_SPAN = 365
+
     def __init__(self, *, api_key: Optional[str] = None) -> None:
         resolved_api_key = api_key or os.environ.get("DEFILLAMA_API_KEY") or ""
         super().__init__(
@@ -170,6 +173,28 @@ class DefiLlama(BaseProvider):
         self._lending_daily = daily
         return daily
 
+    def _fetch_coins_chart_window(
+        self, endpoint: str, start: datetime.date, end: datetime.date
+    ) -> List[Dict[str, Any]]:
+        """Daily SOL prices for one window of at most COINS_CHART_MAX_SPAN - 1 days."""
+        start_ts = int(
+            datetime.datetime.combine(
+                start, datetime.time(hour=12), tzinfo=datetime.timezone.utc
+            ).timestamp()
+        )
+        span = (end - start).days + 2
+        raw = self._get(
+            f"{self.base_url}{endpoint}",
+            params={"start": start_ts, "span": span, "period": "1d"},
+        )
+        prices = raw.get("coins", {}).get("coingecko:solana", {}).get("prices", [])
+        rows = []
+        for entry in prices:
+            row_date = self._ts_to_date(int(entry["timestamp"]))
+            if start.isoformat() <= row_date <= end.isoformat():
+                rows.append({"date": row_date, "value": float(entry["price"])})
+        return rows
+
     # -- BaseProvider interface ---------------------------------------------
 
     @staticmethod
@@ -212,29 +237,22 @@ class DefiLlama(BaseProvider):
             return [{"date": today, "value": float(count)}]
 
         if config.get("coins_chart"):
-            start_ts = int(
-                datetime.datetime.fromisoformat(start_date)
-                .replace(hour=12, tzinfo=datetime.timezone.utc)
-                .timestamp()
-            )
-            span = min(
-                (
-                    datetime.date.fromisoformat(end_date)
-                    - datetime.date.fromisoformat(start_date)
-                ).days
-                + 2,
-                365,
-            )
-            raw = self._get(
-                f"{self.base_url}{config['endpoint']}",
-                params={"start": start_ts, "span": span, "period": "1d"},
-            )
-            prices = raw.get("coins", {}).get("coingecko:solana", {}).get("prices", [])
-            for entry in prices:
-                row_date = self._ts_to_date(int(entry["timestamp"]))
-                if not (start_date <= row_date <= end_date):
-                    continue
-                result.append({"date": row_date, "value": float(entry["price"])})
+            # One request covers at most COINS_CHART_MAX_SPAN points, so longer
+            # ranges are fetched in consecutive windows instead of being cut off.
+            window_start = datetime.date.fromisoformat(start_date)
+            last_day = datetime.date.fromisoformat(end_date)
+            while window_start <= last_day:
+                window_end = min(
+                    window_start
+                    + datetime.timedelta(days=self.COINS_CHART_MAX_SPAN - 2),
+                    last_day,
+                )
+                result.extend(
+                    self._fetch_coins_chart_window(
+                        config["endpoint"], window_start, window_end
+                    )
+                )
+                window_start = window_end + datetime.timedelta(days=1)
             return result
 
         if config.get("lending_field"):

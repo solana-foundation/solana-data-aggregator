@@ -301,3 +301,46 @@ def test_get_metric_perps_returns_perps_metric() -> None:
         mock_factory.call_args.kwargs["metric_type"] == PerpsMetricType.TRADING_VOLUME
     )
     assert mock_factory.call_args.kwargs["value"] == 140.0
+
+
+def _fake_coins_chart(url, params=None, timeout=None):
+    """Stand-in for /coins/chart: one noon-UTC price per day, `span` points from `start`."""
+    # The real API rejects more than 500 points per request.
+    assert params["span"] <= 500
+    prices = [
+        {"timestamp": params["start"] + day * 86_400, "price": 100.0 + day}
+        for day in range(params["span"])
+    ]
+    return _make_mock_resp({"coins": {"coingecko:solana": {"prices": prices}}})
+
+
+def test_fetch_rows_sol_price_short_range_is_one_request() -> None:
+    provider = DefiLlama()
+
+    with patch.object(
+        provider._session, "get", side_effect=_fake_coins_chart
+    ) as mock_get:
+        rows = provider.fetch_rows("overview_sol_price", "2026-01-01", "2026-01-03")
+
+    assert mock_get.call_count == 1
+    assert mock_get.call_args.kwargs["params"]["span"] == 4
+    assert [row["date"] for row in rows] == ["2026-01-01", "2026-01-02", "2026-01-03"]
+
+
+def test_fetch_rows_sol_price_range_longer_than_one_request() -> None:
+    provider = DefiLlama()
+
+    with patch.object(
+        provider._session, "get", side_effect=_fake_coins_chart
+    ) as mock_get:
+        rows = provider.fetch_rows("overview_sol_price", "2024-01-01", "2025-12-31")
+
+    # Every day comes back exactly once, in order.
+    dates = [row["date"] for row in rows]
+    assert len(dates) == 731
+    assert len(set(dates)) == 731
+    assert dates[0] == "2024-01-01"
+    assert dates[-1] == "2025-12-31"
+    assert dates == sorted(dates)
+    # 731 days at up to 364 days per request need three requests.
+    assert mock_get.call_count == 3
