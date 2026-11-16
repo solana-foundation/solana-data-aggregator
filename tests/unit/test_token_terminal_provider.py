@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from metrics.defi import DefiMetricType
 from metrics.lending import Lending, LendingMetricType
 from metrics.network import Network, NetworkMetricType
 from metrics.overview import Overview, OverviewMetricType
@@ -33,11 +34,16 @@ def test_get_stablecoin_circulating_supply_sums_native_and_bridged() -> None:
             Stablecoin, "from_metric_type", return_value=sentinel_metric
         ) as mock_factory,
     ):
-        result = provider.get_metric("stablecoin_circulating_supply", "2026-01-01", "solana")
+        result = provider.get_metric(
+            "stablecoin_circulating_supply", "2026-01-01", "solana"
+        )
 
     assert result is sentinel_metric
     mock_factory.assert_called_once()
-    assert mock_factory.call_args.kwargs["metric_type"] == StablecoinMetricType.CIRCULATING_SUPPLY
+    assert (
+        mock_factory.call_args.kwargs["metric_type"]
+        == StablecoinMetricType.CIRCULATING_SUPPLY
+    )
     # Circulating supply = native issuance + bridged-in supply.
     assert mock_factory.call_args.kwargs["value"] == pytest.approx(13_487_267_570.64)
 
@@ -61,7 +67,9 @@ def test_get_stablecoin_circulating_supply_tolerates_missing_bridged_value() -> 
             Stablecoin, "from_metric_type", return_value=sentinel_metric
         ) as mock_factory,
     ):
-        result = provider.get_metric("stablecoin_circulating_supply", "2026-01-01", "solana")
+        result = provider.get_metric(
+            "stablecoin_circulating_supply", "2026-01-01", "solana"
+        )
 
     assert result is sentinel_metric
     assert mock_factory.call_args.kwargs["value"] == 10_987_267_570.64
@@ -153,20 +161,27 @@ def test_lending_total_borrowed_reads_ecosystem_active_loans() -> None:
     provider = TokenTerminal(api_key="test-token-terminal-key")
     mock_resp = MagicMock()
     mock_resp.json.return_value = [
-        {"timestamp": "2026-09-01T00:00:00.000Z", "ecosystem_active_loans": 2_817_988_030.5}
+        {
+            "timestamp": "2026-09-01T00:00:00.000Z",
+            "ecosystem_active_loans": 2_817_988_030.5,
+        }
     ]
     mock_resp.raise_for_status = MagicMock()
     sentinel_metric = object()
 
     with (
         patch.object(provider._session, "get", return_value=mock_resp) as mock_get,
-        patch.object(Lending, "from_metric_type", return_value=sentinel_metric) as mock_factory,
+        patch.object(
+            Lending, "from_metric_type", return_value=sentinel_metric
+        ) as mock_factory,
     ):
         result = provider.get_metric("lending_total_borrowed", "2026-09-01", "solana")
 
     assert mock_get.call_args.kwargs["params"]["metric_ids"] == "ecosystem_active_loans"
     assert result is sentinel_metric
-    assert mock_factory.call_args.kwargs["metric_type"] == LendingMetricType.TOTAL_BORROWED
+    assert (
+        mock_factory.call_args.kwargs["metric_type"] == LendingMetricType.TOTAL_BORROWED
+    )
     assert mock_factory.call_args.kwargs["value"] == 2_817_988_030.5
 
 
@@ -180,3 +195,122 @@ def test_every_supported_metric_has_a_metric_type() -> None:
         | set(TokenTerminal._NETWORK_METRIC_TYPE_MAP)
     )
     assert set(TokenTerminal.METRIC_MAP) == mapped
+
+
+def _count_row(entity, date, value, asset=False, chain="solana"):
+    return {
+        "asset_id" if asset else "project_id": entity,
+        "timestamp": date,
+        "chain_id": chain,
+        "value": value,
+    }
+
+
+def _count_get(rows, assets=None):
+    def get(endpoint, *, params=None):
+        if endpoint.startswith("/market-sectors/"):
+            ids = {
+                "exchange": ["orca", "meteora", "jupiter", "perps"],
+                "derivatives": ["perps"],
+                "dex-aggregators": ["jupiter"],
+            }
+            return {
+                "data": {
+                    "projects": [
+                        {"project_id": p} for p in ids[endpoint.split("/")[-1]]
+                    ]
+                }
+            }
+        if endpoint == "/assets":
+            return {"data": assets, "total_count": len(assets)}
+        return {"data": rows}
+
+    return get
+
+
+def test_dex_count_uses_positive_spot_protocols_and_deduplicates():
+    provider = TokenTerminal(api_key="test-key")
+    rows = [
+        _count_row("orca", "2026-11-09", "10"),
+        _count_row("orca", "2026-11-09", 15),
+        _count_row("meteora", "2026-11-09", 0),
+        _count_row("jupiter", "2026-11-09", 100),
+        _count_row("perps", "2026-11-09", 100),
+        _count_row("nonexchange", "2026-11-09", 100),
+        _count_row("orca", "2026-11-10", 0),
+        _count_row("orca", "2026-11-08", 10),
+    ]
+    with patch.object(provider, "_get", side_effect=_count_get(rows)):
+        assert provider.fetch_rows("defi_dex_count", "2026-11-09", "2026-11-10") == [
+            {"date": "2026-11-09", "value": 1},
+            {"date": "2026-11-10", "value": 0},
+        ]
+        result = provider.get_metric("defi_dex_count", "2026-11-09", "solana")
+        assert result.metric_type == DefiMetricType.DEX_COUNT
+
+
+def test_stablecoin_count_uses_cap_not_activity_and_includes_bridged():
+    assets = [
+        {
+            "asset_id": asset,
+            "reference_asset_id": peg,
+            "addresses": [
+                {"chain_id": chain, "token_address": asset, "bridged": bridged}
+            ],
+        }
+        for asset, peg, chain, bridged in [
+            ("usdc", "usdollar", "solana", False),
+            ("dai", "usdollar", "solana", True),
+            ("usdt", "usdollar", "solana", False),
+            ("eurc", "euro", "solana", False),
+            ("other", "usdollar", "ethereum", False),
+        ]
+    ]
+    rows = [
+        _count_row(a, "2026-11-09", v, asset=True)
+        for a, v in [
+            ("usdc", 10),
+            ("usdc", 20),
+            ("dai", 1),
+            ("usdt", 0),
+            ("eurc", 5),
+            ("other", 5),
+        ]
+    ]
+    provider = TokenTerminal(api_key="test-key")
+    with patch.object(provider, "_get", side_effect=_count_get(rows, assets)) as get:
+        result = provider.get_metric("stablecoin_count", "2026-11-09", "solana")
+    assert result.value == 2
+    assert result.metric_type == StablecoinMetricType.COUNT
+    params = get.call_args.kwargs["params"]
+    assert params["asset_ids"] == "dai,usdc,usdt"
+    assert params["assets_bridged"] == "true"
+    assert get.call_args.args[0] == "/metrics/asset_market_cap_circulating"
+
+
+@pytest.mark.parametrize("metric", ["defi_dex_count", "stablecoin_count"])
+def test_count_partial_metadata_errors_fail(metric):
+    provider = TokenTerminal(api_key="test-key")
+    with patch.object(
+        provider, "_get", return_value={"data": [], "errors": [{"code": "NOT_FOUND"}]}
+    ):
+        with pytest.raises(ValueError, match="Incomplete"):
+            provider.fetch_rows(metric, "2026-11-09", "2026-11-10")
+
+
+@pytest.mark.parametrize("value", [None, float("nan"), -1])
+def test_count_invalid_values_are_not_zero(value):
+    provider = TokenTerminal(api_key="test-key")
+    with patch.object(
+        provider,
+        "_get",
+        side_effect=_count_get([_count_row("orca", "2026-11-09", value)]),
+    ):
+        with pytest.raises(ValueError):
+            provider.fetch_rows("defi_dex_count", "2026-11-09", "2026-11-09")
+
+
+def test_count_empty_response_does_not_invent_zero_days():
+    provider = TokenTerminal(api_key="test-key")
+    with patch.object(provider, "_get", side_effect=_count_get([])):
+        assert provider.fetch_rows("defi_dex_count", "2026-11-09", "2026-11-10") == []
