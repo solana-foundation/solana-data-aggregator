@@ -103,3 +103,23 @@ def test_overview_metrics_live_api(
     assert isinstance(result, Overview)
     assert result.metric_type == metric_type
     assert low < result.value < high
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("date", ["2024-08-01", "2026-11-15"])
+def test_lending_metrics_live_api(date: str) -> None:
+    if not API_KEY:
+        pytest.skip("Set TOKEN_TERMINAL_API_KEY to run live integration tests.")
+    provider = TokenTerminal(api_key=API_KEY)
+    results = {
+        metric: provider.get_metric(metric, date, "solana")
+        for metric in provider._LENDING_METRIC_TYPE_MAP
+    }
+    assert all(result is not None for result in results.values())
+    deposits = results["lending_total_deposits"].value
+    borrowed = results["lending_total_borrowed"].value
+    utilization = results["lending_utilization_rate"].value
+    assert deposits > 0
+    assert 0 <= borrowed <= deposits
+    assert utilization == pytest.approx(100 * borrowed / deposits)
+    assert results["lending_protocol_count"].value == (1 if date == "2024-08-01" else 2)

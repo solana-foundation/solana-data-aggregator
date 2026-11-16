@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from metrics.lending import Lending, LendingMetricType
+from metrics.lending import Lending
 from metrics.network import Network, NetworkMetricType
 from metrics.overview import Overview, OverviewMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
@@ -33,11 +33,16 @@ def test_get_stablecoin_circulating_supply_sums_native_and_bridged() -> None:
             Stablecoin, "from_metric_type", return_value=sentinel_metric
         ) as mock_factory,
     ):
-        result = provider.get_metric("stablecoin_circulating_supply", "2026-01-01", "solana")
+        result = provider.get_metric(
+            "stablecoin_circulating_supply", "2026-01-01", "solana"
+        )
 
     assert result is sentinel_metric
     mock_factory.assert_called_once()
-    assert mock_factory.call_args.kwargs["metric_type"] == StablecoinMetricType.CIRCULATING_SUPPLY
+    assert (
+        mock_factory.call_args.kwargs["metric_type"]
+        == StablecoinMetricType.CIRCULATING_SUPPLY
+    )
     # Circulating supply = native issuance + bridged-in supply.
     assert mock_factory.call_args.kwargs["value"] == pytest.approx(13_487_267_570.64)
 
@@ -61,7 +66,9 @@ def test_get_stablecoin_circulating_supply_tolerates_missing_bridged_value() -> 
             Stablecoin, "from_metric_type", return_value=sentinel_metric
         ) as mock_factory,
     ):
-        result = provider.get_metric("stablecoin_circulating_supply", "2026-01-01", "solana")
+        result = provider.get_metric(
+            "stablecoin_circulating_supply", "2026-01-01", "solana"
+        )
 
     assert result is sentinel_metric
     assert mock_factory.call_args.kwargs["value"] == 10_987_267_570.64
@@ -149,27 +156,6 @@ def test_overview_metrics_map_to_their_metric_type(
     assert mock_factory.call_args.kwargs["value"] == value
 
 
-def test_lending_total_borrowed_reads_ecosystem_active_loans() -> None:
-    provider = TokenTerminal(api_key="test-token-terminal-key")
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = [
-        {"timestamp": "2026-09-01T00:00:00.000Z", "ecosystem_active_loans": 2_817_988_030.5}
-    ]
-    mock_resp.raise_for_status = MagicMock()
-    sentinel_metric = object()
-
-    with (
-        patch.object(provider._session, "get", return_value=mock_resp) as mock_get,
-        patch.object(Lending, "from_metric_type", return_value=sentinel_metric) as mock_factory,
-    ):
-        result = provider.get_metric("lending_total_borrowed", "2026-09-01", "solana")
-
-    assert mock_get.call_args.kwargs["params"]["metric_ids"] == "ecosystem_active_loans"
-    assert result is sentinel_metric
-    assert mock_factory.call_args.kwargs["metric_type"] == LendingMetricType.TOTAL_BORROWED
-    assert mock_factory.call_args.kwargs["value"] == 2_817_988_030.5
-
-
 def test_every_supported_metric_has_a_metric_type() -> None:
     """Each entry in METRIC_MAP must resolve to a typed metric model."""
     mapped = (
@@ -180,3 +166,113 @@ def test_every_supported_metric_has_a_metric_type() -> None:
         | set(TokenTerminal._NETWORK_METRIC_TYPE_MAP)
     )
     assert set(TokenTerminal.METRIC_MAP) == mapped
+
+
+def _lending_row(product, date, deposits, borrowed):
+    return {
+        "timestamp": date,
+        "chain_id": "solana",
+        "product_id": product,
+        "tvl": deposits,
+        "active_loans": borrowed,
+    }
+
+
+def _lending_provider(kamino, jupiter):
+    provider = TokenTerminal(api_key="test-key")
+
+    def get(endpoint, *, params=None):
+        assert params["metric_ids"] == "tvl,active_loans"
+        assert params["chain_ids"] == "solana"
+        if endpoint == "/projects/kamino/products/kaminolend/metrics":
+            return {"data": kamino}
+        if endpoint == "/projects/jupiter/products/jupiterlend/metrics":
+            return {"data": jupiter}
+        raise AssertionError(endpoint)
+
+    provider._get = MagicMock(side_effect=get)
+    return provider
+
+
+def test_lending_uses_supplied_tvl_and_ratio_of_aligned_sums():
+    provider = _lending_provider(
+        [_lending_row("kaminolend", "2026-01-01", 100, 20)],
+        [_lending_row("jupiterlend", "2026-01-01", 300, 180)],
+    )
+    expected = {
+        "lending_total_deposits": 400,
+        "lending_total_borrowed": 200,
+        "lending_utilization_rate": 50,
+        "lending_protocol_count": 2,
+    }
+    for metric, value in expected.items():
+        result = provider.get_metric(metric, "2026-01-01", "solana")
+        assert isinstance(result, Lending)
+        assert result.value == value
+        assert result.metric_type == provider._LENDING_METRIC_TYPE_MAP[metric]
+    assert provider._get.call_count == 2
+
+
+def test_lending_history_membership_and_missing_rows():
+    provider = _lending_provider(
+        [
+            _lending_row("kaminolend", "2024-08-01", 100, 20),
+            _lending_row("kaminolend", "2025-08-01", 200, 40),
+            _lending_row("kaminolend", "2025-08-02", 250, 50),
+        ],
+        [
+            _lending_row("jupiterlend", "2025-08-01", 100, 10),
+            _lending_row("jupiterlend", "2025-08-03", 100, 10),
+        ],
+    )
+    assert provider.fetch_rows(
+        "lending_protocol_count", "2024-08-01", "2024-08-01"
+    ) == [
+        {"date": "2024-08-01", "value": 1},
+    ]
+    for metric in provider._LENDING_METRIC_TYPE_MAP:
+        assert provider.fetch_rows(metric, "2025-08-02", "2025-08-03") == []
+
+
+def test_lending_zero_deposits_have_no_utilization_or_active_protocols():
+    provider = _lending_provider(
+        [_lending_row("kaminolend", "2026-01-01", 0, 0)],
+        [_lending_row("jupiterlend", "2026-01-01", 0, 0)],
+    )
+    assert (
+        provider.fetch_rows("lending_utilization_rate", "2026-01-01", "2026-01-01")
+        == []
+    )
+    assert provider.fetch_rows(
+        "lending_protocol_count", "2026-01-01", "2026-01-01"
+    ) == [
+        {"date": "2026-01-01", "value": 0},
+    ]
+
+
+def test_lending_partial_success_is_not_a_partial_total():
+    provider = TokenTerminal(api_key="test-key")
+    with patch.object(
+        provider, "_get", return_value={"data": [], "errors": [{"code": "NOT_FOUND"}]}
+    ):
+        with pytest.raises(ValueError, match="Incomplete lending"):
+            provider.fetch_rows("lending_total_deposits", "2026-01-01", "2026-01-01")
+
+
+@pytest.mark.parametrize("value", [None, float("nan"), -1])
+def test_lending_invalid_or_missing_balances_fail(value):
+    provider = _lending_provider(
+        [_lending_row("kaminolend", "2026-01-01", value, 20)],
+        [_lending_row("jupiterlend", "2026-01-01", 300, 180)],
+    )
+    with pytest.raises(ValueError):
+        provider.fetch_rows("lending_total_deposits", "2026-01-01", "2026-01-01")
+
+
+def test_lending_rejects_duplicate_product_days():
+    row = _lending_row("kaminolend", "2026-01-01", 100, 20)
+    provider = _lending_provider(
+        [row, row], [_lending_row("jupiterlend", "2026-01-01", 300, 180)]
+    )
+    with pytest.raises(ValueError, match="Duplicate lending"):
+        provider.fetch_rows("lending_total_deposits", "2026-01-01", "2026-01-01")
