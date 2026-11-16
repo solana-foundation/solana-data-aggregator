@@ -289,3 +289,110 @@ def test_get_metric_overview_fees_returns_overview_fee_metric() -> None:
     mock_factory.assert_called_once()
     assert mock_factory.call_args.kwargs["metric_type"] == OverviewMetricType.FEES
     assert mock_factory.call_args.kwargs["value"] == pytest.approx(5000.0)
+
+
+def _volume_provider(rows, unavailable=()):
+    provider = TokenTerminal(api_key="test-token-terminal-key")
+    assets = [
+        {
+            "asset_id": asset,
+            "reference_asset_id": "usdollar",
+            "addresses": [{"chain_id": "solana", "token_address": asset}],
+        }
+        for asset in ("usdc", "usdt")
+    ]
+
+    def get(endpoint, *, params=None):
+        if endpoint == "/assets":
+            return {"data": assets, "total_count": len(assets)}
+        if endpoint == "/metrics/asset_transfer_volume":
+            assert params["chain_ids"] == "solana"
+            assert params["asset_ids"] == "usdc,usdt"
+            assert params["start"] == "2020-01-01"
+            return {"data": rows}
+        asset = endpoint.split("/")[-1]
+        return {
+            "data": {
+                "available_metrics": (
+                    [] if asset in unavailable else ["asset_transfer_volume"]
+                )
+            }
+        }
+
+    provider._get = MagicMock(side_effect=get)
+    return provider
+
+
+def _volume_row(asset, date, value):
+    return {
+        "asset_id": asset,
+        "chain_id": "solana",
+        "timestamp": date,
+        "metric_id": "asset_transfer_volume",
+        "value": value,
+    }
+
+
+def test_stablecoin_volume_uses_historical_membership_and_omits_gaps():
+    provider = _volume_provider(
+        [
+            _volume_row("usdc", "2025-01-01", 10),
+            _volume_row("usdc", "2025-01-02", 20),
+            _volume_row("usdc", "2025-01-03", 30),
+            _volume_row("usdt", "2025-01-02", 5),
+            _volume_row("usdt", "2025-01-04", 7),
+        ]
+    )
+    assert provider.fetch_rows(
+        "stablecoin_transfer_volume", "2025-01-01", "2025-01-04"
+    ) == [
+        {"date": "2025-01-01", "value": 10},
+        {"date": "2025-01-02", "value": 25},
+    ]
+    # A subsequent narrow request keeps the same historical membership.
+    assert (
+        provider.fetch_rows("stablecoin_transfer_volume", "2025-01-03", "2025-01-03")
+        == []
+    )
+    assert provider._get.call_count == 2
+
+
+def test_stablecoin_volume_distinguishes_unavailable_data_and_zero():
+    provider = _volume_provider(
+        [_volume_row("usdc", "2025-01-01", 0)], unavailable=("usdt",)
+    )
+    metric = provider.get_metric("stablecoin_transfer_volume", "2025-01-01", "solana")
+    assert isinstance(metric, Stablecoin)
+    assert metric.metric_type == StablecoinMetricType.TRANSFER_VOLUME
+    assert metric.value == 0
+
+
+def test_stablecoin_volume_rejects_missing_supported_history():
+    provider = _volume_provider([_volume_row("usdc", "2025-01-01", 10)])
+    with pytest.raises(ValueError, match="Missing Solana volume history"):
+        provider.fetch_rows("stablecoin_transfer_volume", "2025-01-01", "2025-01-01")
+
+
+@pytest.mark.parametrize("value", [None, float("nan"), -1])
+def test_stablecoin_volume_rejects_invalid_values(value):
+    provider = _volume_provider([_volume_row("usdc", "2025-01-01", value)])
+    with pytest.raises(ValueError):
+        provider.fetch_rows("stablecoin_transfer_volume", "2025-01-01", "2025-01-01")
+
+
+def test_stablecoin_volume_rejects_partial_api_success():
+    provider = TokenTerminal(api_key="test-token-terminal-key")
+    with patch.object(
+        provider, "_get", return_value={"data": [], "errors": [{"code": "NOT_FOUND"}]}
+    ):
+        with pytest.raises(ValueError, match="partial API errors"):
+            provider.fetch_rows(
+                "stablecoin_transfer_volume", "2025-01-01", "2025-01-01"
+            )
+
+
+def test_stablecoin_volume_rejects_duplicate_daily_rows():
+    row = _volume_row("usdc", "2025-01-01", 10)
+    provider = _volume_provider([row, row])
+    with pytest.raises(ValueError, match="Duplicate daily"):
+        provider.fetch_rows("stablecoin_transfer_volume", "2025-01-01", "2025-01-01")

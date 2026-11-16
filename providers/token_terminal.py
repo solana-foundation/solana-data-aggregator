@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import math
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -113,6 +114,17 @@ class TokenTerminal(BaseProvider):
                 "and pre-minted, not-yet-issued balances."
             ),
         },
+        "stablecoin_transfer_volume": {
+            "metric_id": "asset_transfer_volume",
+            "methodology": (
+                "USD transfer volume for USD-pegged stablecoins covered by Token "
+                "Terminal on Solana, including mint and burn flows after "
+                "premint/preburn corrections. Each asset enters the aggregate "
+                "at its first served Solana observation. Missing days after "
+                "that observation are omitted from the aggregate. Non-USD pegs "
+                "and assets without served volume are excluded."
+            ),
+        },
         "defi_dex_volume": {
             "metric_id": "ecosystem_dex_trading_volume",
             "date_field": "timestamp",
@@ -152,6 +164,7 @@ class TokenTerminal(BaseProvider):
 
     _STABLECOIN_METRIC_TYPE_MAP: Dict[str, StablecoinMetricType] = {
         "stablecoin_circulating_supply": StablecoinMetricType.CIRCULATING_SUPPLY,
+        "stablecoin_transfer_volume": StablecoinMetricType.TRANSFER_VOLUME,
     }
 
     _DEFI_METRIC_TYPE_MAP: Dict[str, DefiMetricType] = {
@@ -179,6 +192,7 @@ class TokenTerminal(BaseProvider):
             api_key=resolved_api_key,
         )
         self._session = requests.Session()
+        self._stablecoin_volume_cache: Optional[List[Dict[str, Any]]] = None
 
     # -- private helpers ----------------------------------------------------
 
@@ -196,6 +210,121 @@ class TokenTerminal(BaseProvider):
         resp.raise_for_status()
         return resp.json()
 
+    @staticmethod
+    def _response_rows(body: Any) -> List[Dict[str, Any]]:
+        if isinstance(body, dict) and body.get("errors"):
+            raise ValueError("Token Terminal returned partial API errors")
+        rows = body.get("data") if isinstance(body, dict) else body
+        if not isinstance(rows, list):
+            raise ValueError("Expected Token Terminal data rows")
+        return rows
+
+    def _stablecoin_transfer_volume(self) -> List[Dict[str, Any]]:
+        if self._stablecoin_volume_cache is not None:
+            return self._stablecoin_volume_cache
+
+        assets = []
+        offset = 0
+        while True:
+            body = self._get(
+                "/assets",
+                params={
+                    "asset_types": "stablecoin",
+                    "reference_asset_ids": "usdollar",
+                    "limit": 1000,
+                    "offset": offset,
+                },
+            )
+            page = self._response_rows(body)
+            assets.extend(page)
+            offset += len(page)
+            total = body.get("total_count") if isinstance(body, dict) else None
+            if not page or (isinstance(total, int) and offset >= total):
+                break
+            if total is None and len(page) < 1000:
+                break
+
+        universe = set()
+        deployments: Dict[frozenset[str], str] = {}
+        seen_addresses: set[str] = set()
+        for asset in assets:
+            if asset.get("reference_asset_id") != "usdollar":
+                continue
+            addresses = frozenset(
+                address["token_address"]
+                for address in asset.get("addresses", [])
+                if address.get("chain_id") == "solana"
+            )
+            if not addresses:
+                continue
+            if addresses in deployments:
+                continue
+            if seen_addresses.intersection(addresses):
+                raise ValueError("Overlapping stablecoin deployments")
+            deployments[addresses] = asset["asset_id"]
+            seen_addresses.update(addresses)
+            universe.add(asset["asset_id"])
+        if not universe:
+            raise ValueError("No USD-pegged Solana stablecoins found")
+        if len(universe) > 300:
+            raise ValueError("Stablecoin universe exceeds API asset limit")
+
+        # Fetch available history once so a narrow window cannot hide earlier membership.
+        yesterday = (
+            datetime.datetime.now(datetime.timezone.utc).date()
+            - datetime.timedelta(days=1)
+        ).isoformat()
+        rows = self._response_rows(
+            self._get(
+                "/metrics/asset_transfer_volume",
+                params={
+                    "asset_ids": ",".join(sorted(universe)),
+                    "chain_ids": "solana",
+                    "start": "2020-01-01",
+                    "end": yesterday,
+                },
+            )
+        )
+        series: Dict[str, Dict[str, float]] = {}
+        for row in rows:
+            asset_id = row["asset_id"]
+            if asset_id not in universe or row.get("chain_id") != "solana":
+                raise ValueError("Unexpected asset or chain in stablecoin volume")
+            date = str(row["timestamp"])[:10]
+            datetime.date.fromisoformat(date)
+            if row.get("value") is None:
+                continue
+            value = float(row["value"])
+            if not math.isfinite(value) or value < 0:
+                raise ValueError("Invalid stablecoin volume")
+            daily = series.setdefault(asset_id, {})
+            if date in daily:
+                raise ValueError("Duplicate daily stablecoin volume")
+            daily[date] = value
+
+        for asset_id in universe - series.keys():
+            detail = self._get(f"/assets/{asset_id}")
+            if detail.get("errors"):
+                raise ValueError("Token Terminal returned asset availability errors")
+            available = detail.get("data", {}).get("available_metrics")
+            if not isinstance(available, list) or "asset_transfer_volume" in available:
+                raise ValueError(f"Missing Solana volume history for {asset_id}")
+
+        first_dates = {asset: min(daily) for asset, daily in series.items()}
+        dates = sorted({date for daily in series.values() for date in daily})
+        result = []
+        for date in dates:
+            members = [asset for asset, first in first_dates.items() if first <= date]
+            if all(date in series[asset] for asset in members):
+                result.append(
+                    {
+                        "date": date,
+                        "value": sum(series[asset][date] for asset in members),
+                    }
+                )
+        self._stablecoin_volume_cache = result
+        return result
+
     # -- BaseProvider interface ---------------------------------------------
 
     @property
@@ -207,6 +336,12 @@ class TokenTerminal(BaseProvider):
     ) -> List[Dict[str, Any]]:
         """Return normalized {"date": str, "value": float} records for the given range (both dates inclusive)."""
         config = self.METRIC_MAP[metric]
+        if metric == "stablecoin_transfer_volume":
+            return [
+                row
+                for row in self._stablecoin_transfer_volume()
+                if start_date <= row["date"] <= end_date
+            ]
         # A metric may map to one or more Token Terminal metric_ids. When several
         # are provided (e.g. native + bridged stablecoin supply), their per-day
         # values are summed into a single figure.

@@ -125,3 +125,16 @@ def test_get_overview_fees_live_api() -> None:
     assert metric.metric_type == OverviewMetricType.FEES
     assert metric.unit == "SOL"
     assert 100 < metric.value < 1_000_000
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("date", ["2025-01-01", "2026-11-09"])
+def test_stablecoin_transfer_volume_live_api(date: str) -> None:
+    if not API_KEY:
+        pytest.skip("Set TOKEN_TERMINAL_API_KEY to run live integration tests.")
+    provider = TokenTerminal(api_key=API_KEY)
+    metric = provider.get_metric("stablecoin_transfer_volume", date, "solana")
+    assert isinstance(metric, Stablecoin)
+    assert metric.metric_type == StablecoinMetricType.TRANSFER_VOLUME
+    assert metric.unit == "USD"
+    assert metric.value > 0
