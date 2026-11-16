@@ -147,10 +147,34 @@ class TokenTerminal(BaseProvider):
             "value_field": "ecosystem_dex_trading_volume",
             "methodology": "DEX trade volume varies by indexed venues, pricing, and filtering methodology.",
         },
+        "lending_total_deposits": {
+            "field": "deposits",
+            "methodology": (
+                "USD deposits supplied to Kamino Lend and Jupiter Lend on Solana, "
+                "including borrowed liquidity. Other lending protocols are not covered."
+            ),
+        },
+        "lending_utilization_rate": {
+            "field": "utilization_rate",
+            "methodology": (
+                "Total borrowed divided by total supplied deposits across Kamino "
+                "Lend and Jupiter Lend on Solana, multiplied by 100. Zero-deposit "
+                "days are omitted. Both sums use the same covered products."
+            ),
+        },
         "lending_total_borrowed": {
-            "metric_id": "ecosystem_active_loans",
-            "date_field": "timestamp",
-            "value_field": "ecosystem_active_loans",
+            "field": "borrowed",
+            "methodology": (
+                "USD active loans from Kamino Lend and Jupiter Lend on Solana. "
+                "Jupiter Lend is counted once, under Jupiter rather than Fluid."
+            ),
+        },
+        "lending_protocol_count": {
+            "field": "protocol_count",
+            "methodology": (
+                "Number of covered lending protocols with positive supplied "
+                "deposits on Solana that day: Kamino Lend and Jupiter Lend."
+            ),
         },
         "network_validator_count": {
             "metric_id": "number_of_validators",
@@ -186,10 +210,14 @@ class TokenTerminal(BaseProvider):
 
     _DEFI_METRIC_TYPE_MAP: Dict[str, DefiMetricType] = {
         "defi_dex_volume": DefiMetricType.DEX_VOLUME,
+        "defi_dex_count": DefiMetricType.DEX_COUNT,
     }
 
     _LENDING_METRIC_TYPE_MAP: Dict[str, LendingMetricType] = {
         "lending_total_borrowed": LendingMetricType.TOTAL_BORROWED,
+        "lending_total_deposits": LendingMetricType.TOTAL_DEPOSITS,
+        "lending_utilization_rate": LendingMetricType.UTILIZATION_RATE,
+        "lending_protocol_count": LendingMetricType.PROTOCOL_COUNT,
     }
 
     _NETWORK_METRIC_TYPE_MAP: Dict[str, NetworkMetricType] = {
@@ -198,6 +226,7 @@ class TokenTerminal(BaseProvider):
 
     BASE_URL = "https://api.tokenterminal.com/v2"
     PROJECT = "solana"
+    LENDING_PRODUCTS = (("kamino", "kaminolend"), ("jupiter", "jupiterlend"))
 
     def __init__(self, *, api_key: Optional[str] = None) -> None:
         resolved_api_key = api_key or self._resolve_api_key()
@@ -209,6 +238,7 @@ class TokenTerminal(BaseProvider):
             api_key=resolved_api_key,
         )
         self._session = requests.Session()
+        self._lending_daily: Optional[Dict[str, Dict[str, float]]] = None
         self._stablecoin_volume_cache: Optional[List[Dict[str, Any]]] = None
 
     # -- private helpers ----------------------------------------------------
@@ -434,6 +464,71 @@ class TokenTerminal(BaseProvider):
             for date, entities in sorted(daily.items())
         ]
 
+    def _fetch_lending_daily(self) -> Dict[str, Dict[str, float]]:
+        if self._lending_daily is not None:
+            return self._lending_daily
+        yesterday = (
+            datetime.datetime.now(datetime.timezone.utc).date()
+            - datetime.timedelta(days=1)
+        ).isoformat()
+        series: Dict[str, Dict[str, Dict[str, float]]] = {}
+        for project, product in self.LENDING_PRODUCTS:
+            body = self._get(
+                f"/projects/{project}/products/{product}/metrics",
+                params={
+                    "metric_ids": "tvl,active_loans",
+                    "chain_ids": "solana",
+                    "start": "2020-01-01",
+                    "end": yesterday,
+                },
+            )
+            if isinstance(body, dict) and body.get("errors"):
+                raise ValueError(f"Incomplete lending API response for {product}")
+            rows = body.get("data") if isinstance(body, dict) else body
+            if not isinstance(rows, list):
+                raise ValueError(f"Missing lending rows for {product}")
+            daily = {}
+            for row in rows:
+                date = str(row.get("timestamp", ""))[:10]
+                datetime.date.fromisoformat(date)
+                if row.get("chain_id") != "solana" or row.get("product_id") != product:
+                    raise ValueError(f"Unexpected lending dimensions for {product}")
+                if row.get("tvl") is None or row.get("active_loans") is None:
+                    continue
+                deposits, borrowed = float(row["tvl"]), float(row["active_loans"])
+                if not all(math.isfinite(v) and v >= 0 for v in (deposits, borrowed)):
+                    raise ValueError(f"Invalid lending balances for {product}")
+                if date in daily:
+                    raise ValueError(f"Duplicate lending day for {product}")
+                daily[date] = {"deposits": deposits, "borrowed": borrowed}
+            if not daily:
+                raise ValueError(f"No complete lending history for {product}")
+            series[product] = daily
+
+        first_dates = {product: min(daily) for product, daily in series.items()}
+        dates = sorted({date for daily in series.values() for date in daily})
+        result = {}
+        for date in dates:
+            products = [
+                product for product, first in first_dates.items() if first <= date
+            ]
+            if not all(date in series[product] for product in products):
+                continue
+            deposits = sum(series[p][date]["deposits"] for p in products)
+            borrowed = sum(series[p][date]["borrowed"] for p in products)
+            values = {
+                "deposits": deposits,
+                "borrowed": borrowed,
+                "protocol_count": float(
+                    sum(series[p][date]["deposits"] > 0 for p in products)
+                ),
+            }
+            if deposits > 0:
+                values["utilization_rate"] = borrowed / deposits * 100
+            result[date] = values
+        self._lending_daily = result
+        return result
+
     # -- BaseProvider interface ---------------------------------------------
 
     @property
@@ -445,6 +540,13 @@ class TokenTerminal(BaseProvider):
     ) -> List[Dict[str, Any]]:
         """Return normalized {"date": str, "value": float} records for the given range (both dates inclusive)."""
         config = self.METRIC_MAP[metric]
+        if metric in self._LENDING_METRIC_TYPE_MAP:
+            field = config["field"]
+            return [
+                {"date": date, "value": values[field]}
+                for date, values in sorted(self._fetch_lending_daily().items())
+                if start_date <= date <= end_date and field in values
+            ]
         if metric in ("defi_dex_count", "stablecoin_count"):
             return self._fetch_count_rows(metric, start_date, end_date)
         if metric == "stablecoin_transfer_volume":
