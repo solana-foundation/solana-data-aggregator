@@ -107,12 +107,7 @@ def test_overview_metrics_live_api(
 
 @pytest.mark.integration
 def test_get_overview_fees_live_api() -> None:
-    """Fees must come back in SOL, not the USD series the API serves.
-
-    The bounds are guards against a unit mistake, not expected values: a
-    missing division leaves the USD figure (tens of millions) in place and a
-    wrong denominator picks up a price-sized number instead.
-    """
+    """Overview fees are returned in SOL."""
     if not API_KEY:
         pytest.skip(
             "Set TOKEN_TERMINAL_API_KEY to run live Token Terminal integration tests."
