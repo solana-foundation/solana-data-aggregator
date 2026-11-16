@@ -35,6 +35,29 @@ class TokenTerminal(BaseProvider):
             "date_field": "timestamp",
             "value_field": "price",
         },
+        "overview_fees": {
+            # Token Terminal publishes daily Solana fees in USD: block-level
+            # base plus priority fees, converted with the day's SOL end-of-day
+            # close. The target metric is in SOL, so the same call also
+            # requests the day's price and the provider divides the two
+            # fields. They are never summed.
+            "metric_id": "fees,price",
+            "date_field": "timestamp",
+            "numerator_field": "fees",
+            "denominator_field": "price",
+            "methodology": (
+                "Daily fees on Solana = the sum of every transaction fee in the "
+                "day's blocks: base fees plus priority fees, for vote and "
+                "non-vote transactions, successful and failed. Jito tips are "
+                "separate SOL transfers rather than transaction fees, so they "
+                "are excluded. Token Terminal serves the fee series in USD "
+                "using the day's SOL end-of-day close; the provider fetches "
+                "that same price series in one call and divides fees by it, "
+                "which returns the SOL amount without a second price source or "
+                "a daily average. Days with a missing or non-positive price are "
+                "dropped instead of divided."
+            ),
+        },
         "overview_fee_payers": {
             "metric_id": "active_addresses_daily",
             "date_field": "timestamp",
@@ -131,6 +154,7 @@ class TokenTerminal(BaseProvider):
         "overview_tx_count_total": OverviewMetricType.TX_COUNT_TOTAL,
         "overview_tx_count_vote": OverviewMetricType.TX_COUNT_VOTE,
         "overview_sol_price": OverviewMetricType.SOL_PRICE,
+        "overview_fees": OverviewMetricType.FEES,
         "overview_fee_payers": OverviewMetricType.FEE_PAYERS,
         "overview_non_vote_tx_count_success": OverviewMetricType.TX_COUNT_NON_VOTE_SUCCESS,
         "overview_non_vote_tx_count_failed": OverviewMetricType.TX_COUNT_NON_VOTE_FAILED,
@@ -197,10 +221,15 @@ class TokenTerminal(BaseProvider):
         config = self.METRIC_MAP[metric]
         # A metric may map to one or more Token Terminal metric_ids. When several
         # are provided (e.g. native + bridged stablecoin supply), their per-day
-        # values are summed into a single figure.
-        value_fields = config["value_field"]
-        if isinstance(value_fields, str):
-            value_fields = [value_fields]
+        # values are summed into a single figure. Metrics configured with a
+        # numerator and denominator (fees over price) are divided instead; the
+        # two fields are never added.
+        numerator_field = config.get("numerator_field")
+        denominator_field = config.get("denominator_field")
+        if numerator_field is None:
+            value_fields = config["value_field"]
+            if isinstance(value_fields, str):
+                value_fields = [value_fields]
         body = self._get(
             f"/projects/{self.PROJECT}/metrics",
             params={
@@ -215,6 +244,25 @@ class TokenTerminal(BaseProvider):
         for row in raw:
             row_date = str(row.get(config["date_field"], ""))[:10]
             if not row_date or not (start_date <= row_date <= end_date):
+                continue
+            if numerator_field is not None:
+                # The USD fee series is divided by the same day's price. A
+                # missing or non-positive price makes the SOL value
+                # undefined, so the day is dropped rather than reported as
+                # zero or fall back to another day's price.
+                numerator = row.get(numerator_field)
+                denominator = row.get(denominator_field)
+                if numerator is None or denominator is None:
+                    continue
+                denominator_value = float(denominator)
+                if denominator_value <= 0:
+                    continue
+                result.append(
+                    {
+                        "date": row_date,
+                        "value": float(numerator) / denominator_value,
+                    }
+                )
                 continue
             # Sum the values that are present for this day. If one series has no
             # value for a date (e.g. bridged supply on dates before any bridged

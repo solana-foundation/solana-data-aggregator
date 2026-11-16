@@ -103,3 +103,30 @@ def test_overview_metrics_live_api(
     assert isinstance(result, Overview)
     assert result.metric_type == metric_type
     assert low < result.value < high
+
+
+@pytest.mark.integration
+def test_get_overview_fees_live_api() -> None:
+    """Fees must come back in SOL, not the USD series the API serves.
+
+    The bounds are guards against a unit mistake, not expected values: a
+    missing division leaves the USD figure (tens of millions) in place and a
+    wrong denominator picks up a price-sized number instead.
+    """
+    if not API_KEY:
+        pytest.skip(
+            "Set TOKEN_TERMINAL_API_KEY to run live Token Terminal integration tests."
+        )
+
+    provider = TokenTerminal(api_key=API_KEY)
+    metric = provider.get_metric(
+        metric="overview_fees",
+        date="2025-01-01",
+        chain="solana",
+    )
+
+    assert metric is not None
+    assert isinstance(metric, Overview)
+    assert metric.metric_type == OverviewMetricType.FEES
+    assert metric.unit == "SOL"
+    assert 100 < metric.value < 1_000_000
