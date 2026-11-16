@@ -179,6 +179,16 @@ class TokenTerminal(BaseProvider):
                 "Jupiter Lend is counted once, under Jupiter rather than Fluid."
             ),
         },
+        "network_avg_tps": {
+            "metric_id": "non_vote_transaction_count",
+            "date_field": "timestamp",
+            "value_field": "non_vote_transaction_count",
+            "divisor": 86400,
+            "methodology": (
+                "Daily successful and failed non-vote transactions divided by "
+                "86,400 seconds. Vote transactions are excluded."
+            ),
+        },
         "network_validator_count": {
             "metric_id": "number_of_validators",
             "date_field": "timestamp",
@@ -224,6 +234,7 @@ class TokenTerminal(BaseProvider):
     }
 
     _NETWORK_METRIC_TYPE_MAP: Dict[str, NetworkMetricType] = {
+        "network_avg_tps": NetworkMetricType.AVG_TPS,
         "network_validator_count": NetworkMetricType.VALIDATOR_COUNT,
     }
 
@@ -605,7 +616,7 @@ class TokenTerminal(BaseProvider):
             present = [v for v in present if v is not None]
             if not present:
                 continue
-            value = sum(float(v) for v in present)
+            value = sum(float(v) for v in present) / config.get("divisor", 1)
             result.append({"date": row_date, "value": value})
         return result
 

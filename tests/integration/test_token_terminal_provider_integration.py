@@ -183,3 +183,16 @@ def test_stablecoin_transfer_count_live_api(date: str) -> None:
     assert result.metric_type == StablecoinMetricType.TRANSFER_COUNT
     assert result.value > 0
     assert result.value == int(result.value)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("date", ["2025-01-01", "2026-11-15"])
+def test_network_average_tps_live_api(date: str) -> None:
+    if not API_KEY:
+        pytest.skip("Set TOKEN_TERMINAL_API_KEY to run live integration tests.")
+    provider = TokenTerminal(api_key=API_KEY)
+    result = provider.get_metric("network_avg_tps", date, "solana")
+    assert isinstance(result, Network)
+    assert result.metric_type == NetworkMetricType.AVG_TPS
+    assert result.unit == "TPS"
+    assert 0 < result.value < 100000

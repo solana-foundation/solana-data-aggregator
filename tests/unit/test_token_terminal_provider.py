@@ -615,3 +615,30 @@ def test_stablecoin_transfer_count_uses_event_counts_and_omits_gaps():
     assert result.metric_type == StablecoinMetricType.TRANSFER_COUNT
     assert result.value == 4
     assert provider._get.call_count == 2
+
+
+def test_network_average_tps_uses_non_vote_count_and_preserves_zero():
+    provider = TokenTerminal(api_key="test-key")
+    payload = {
+        "data": [
+            {
+                "timestamp": "2026-11-14",
+                "non_vote_transaction_count": 864000,
+                "transaction_count": 1728000,
+            },
+            {"timestamp": "2026-11-15", "non_vote_transaction_count": 0},
+            {"timestamp": "2026-11-16", "non_vote_transaction_count": None},
+        ]
+    }
+    with patch.object(provider, "_get", return_value=payload) as get:
+        assert provider.fetch_rows("network_avg_tps", "2026-11-14", "2026-11-16") == [
+            {"date": "2026-11-14", "value": 10},
+            {"date": "2026-11-15", "value": 0},
+        ]
+        result = provider.get_metric("network_avg_tps", "2026-11-14", "solana")
+        assert result.metric_type == NetworkMetricType.AVG_TPS
+        assert result.unit == "TPS"
+        assert result.value == 10
+        assert (
+            get.call_args.kwargs["params"]["metric_ids"] == "non_vote_transaction_count"
+        )
