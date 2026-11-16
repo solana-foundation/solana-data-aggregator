@@ -169,13 +169,6 @@ class TokenTerminal(BaseProvider):
                 "Jupiter Lend is counted once, under Jupiter rather than Fluid."
             ),
         },
-        "lending_protocol_count": {
-            "field": "protocol_count",
-            "methodology": (
-                "Number of covered lending protocols with positive supplied "
-                "deposits on Solana that day: Kamino Lend and Jupiter Lend."
-            ),
-        },
         "network_validator_count": {
             "metric_id": "number_of_validators",
             "date_field": "timestamp",
@@ -217,7 +210,6 @@ class TokenTerminal(BaseProvider):
         "lending_total_borrowed": LendingMetricType.TOTAL_BORROWED,
         "lending_total_deposits": LendingMetricType.TOTAL_DEPOSITS,
         "lending_utilization_rate": LendingMetricType.UTILIZATION_RATE,
-        "lending_protocol_count": LendingMetricType.PROTOCOL_COUNT,
     }
 
     _NETWORK_METRIC_TYPE_MAP: Dict[str, NetworkMetricType] = {
@@ -519,9 +511,6 @@ class TokenTerminal(BaseProvider):
             values = {
                 "deposits": deposits,
                 "borrowed": borrowed,
-                "protocol_count": float(
-                    sum(series[p][date]["deposits"] > 0 for p in products)
-                ),
             }
             if deposits > 0:
                 values["utilization_rate"] = borrowed / deposits * 100

@@ -525,7 +525,6 @@ def test_lending_uses_supplied_tvl_and_ratio_of_aligned_sums():
         "lending_total_deposits": 400,
         "lending_total_borrowed": 200,
         "lending_utilization_rate": 50,
-        "lending_protocol_count": 2,
     }
     for metric, value in expected.items():
         result = provider.get_metric(metric, "2026-01-01", "solana")
@@ -548,15 +547,15 @@ def test_lending_history_membership_and_missing_rows():
         ],
     )
     assert provider.fetch_rows(
-        "lending_protocol_count", "2024-08-01", "2024-08-01"
+        "lending_total_deposits", "2024-08-01", "2024-08-01"
     ) == [
-        {"date": "2024-08-01", "value": 1},
+        {"date": "2024-08-01", "value": 100},
     ]
     for metric in provider._LENDING_METRIC_TYPE_MAP:
         assert provider.fetch_rows(metric, "2025-08-02", "2025-08-03") == []
 
 
-def test_lending_zero_deposits_have_no_utilization_or_active_protocols():
+def test_lending_zero_deposits_have_no_utilization():
     provider = _lending_provider(
         [_lending_row("kaminolend", "2026-01-01", 0, 0)],
         [_lending_row("jupiterlend", "2026-01-01", 0, 0)],
@@ -566,7 +565,7 @@ def test_lending_zero_deposits_have_no_utilization_or_active_protocols():
         == []
     )
     assert provider.fetch_rows(
-        "lending_protocol_count", "2026-01-01", "2026-01-01"
+        "lending_total_deposits", "2026-01-01", "2026-01-01"
     ) == [
         {"date": "2026-01-01", "value": 0},
     ]

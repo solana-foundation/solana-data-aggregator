@@ -170,4 +170,3 @@ def test_lending_metrics_live_api(date: str) -> None:
     assert deposits > 0
     assert 0 <= borrowed <= deposits
     assert utilization == pytest.approx(100 * borrowed / deposits)
-    assert results["lending_protocol_count"].value == (1 if date == "2024-08-01" else 2)
