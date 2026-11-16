@@ -264,7 +264,7 @@ def test_get_metric_overview_fees_returns_overview_fee_metric() -> None:
     assert mock_factory.call_args.kwargs["value"] == pytest.approx(5000.0)
 
 
-def _volume_provider(rows, unavailable=()):
+def _volume_provider(rows, unavailable=(), metric_id="asset_transfer_volume"):
     provider = TokenTerminal(api_key="test-token-terminal-key")
     assets = [
         {
@@ -278,18 +278,14 @@ def _volume_provider(rows, unavailable=()):
     def get(endpoint, *, params=None):
         if endpoint == "/assets":
             return {"data": assets, "total_count": len(assets)}
-        if endpoint == "/metrics/asset_transfer_volume":
+        if endpoint == f"/metrics/{metric_id}":
             assert params["chain_ids"] == "solana"
             assert params["asset_ids"] == "usdc,usdt"
             assert params["start"] == "2020-01-01"
             return {"data": rows}
         asset = endpoint.split("/")[-1]
         return {
-            "data": {
-                "available_metrics": (
-                    [] if asset in unavailable else ["asset_transfer_volume"]
-                )
-            }
+            "data": {"available_metrics": ([] if asset in unavailable else [metric_id])}
         }
 
     provider._get = MagicMock(side_effect=get)
@@ -342,7 +338,7 @@ def test_stablecoin_volume_distinguishes_unavailable_data_and_zero():
 
 def test_stablecoin_volume_rejects_missing_supported_history():
     provider = _volume_provider([_volume_row("usdc", "2025-01-01", 10)])
-    with pytest.raises(ValueError, match="Missing Solana volume history"):
+    with pytest.raises(ValueError, match="Missing Solana transfer history"):
         provider.fetch_rows("stablecoin_transfer_volume", "2025-01-01", "2025-01-01")
 
 
@@ -597,3 +593,25 @@ def test_lending_rejects_duplicate_product_days():
     )
     with pytest.raises(ValueError, match="Duplicate lending"):
         provider.fetch_rows("lending_total_deposits", "2026-01-01", "2026-01-01")
+
+
+def test_stablecoin_transfer_count_uses_event_counts_and_omits_gaps():
+    rows = [
+        _volume_row("usdc", "2025-01-01", 3),
+        _volume_row("usdc", "2025-01-02", 0),
+        _volume_row("usdc", "2025-01-03", 7),
+        _volume_row("usdt", "2025-01-02", 4),
+    ]
+    for row in rows:
+        row["metric_id"] = "asset_transfer_count"
+    provider = _volume_provider(rows, metric_id="asset_transfer_count")
+    assert provider.fetch_rows(
+        "stablecoin_transfer_count", "2025-01-01", "2025-01-03"
+    ) == [
+        {"date": "2025-01-01", "value": 3},
+        {"date": "2025-01-02", "value": 4},
+    ]
+    result = provider.get_metric("stablecoin_transfer_count", "2025-01-02", "solana")
+    assert result.metric_type == StablecoinMetricType.TRANSFER_COUNT
+    assert result.value == 4
+    assert provider._get.call_count == 2

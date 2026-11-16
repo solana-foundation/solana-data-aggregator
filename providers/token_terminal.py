@@ -114,6 +114,16 @@ class TokenTerminal(BaseProvider):
                 "and pre-minted, not-yet-issued balances."
             ),
         },
+        "stablecoin_transfer_count": {
+            "metric_id": "asset_transfer_count",
+            "methodology": (
+                "Token transfer events for covered USD-pegged stablecoins on Solana, "
+                "including bridged deployments. Counts SPL and Token-2022 transfer "
+                "instructions, not distinct transactions. Assets enter at their "
+                "first served observation; later gaps omit the aggregate day. "
+                "Assets without served counts and non-USD pegs are excluded."
+            ),
+        },
         "stablecoin_transfer_volume": {
             "metric_id": "asset_transfer_volume",
             "methodology": (
@@ -198,6 +208,7 @@ class TokenTerminal(BaseProvider):
     _STABLECOIN_METRIC_TYPE_MAP: Dict[str, StablecoinMetricType] = {
         "stablecoin_circulating_supply": StablecoinMetricType.CIRCULATING_SUPPLY,
         "stablecoin_transfer_volume": StablecoinMetricType.TRANSFER_VOLUME,
+        "stablecoin_transfer_count": StablecoinMetricType.TRANSFER_COUNT,
         "stablecoin_count": StablecoinMetricType.COUNT,
     }
 
@@ -231,7 +242,7 @@ class TokenTerminal(BaseProvider):
         )
         self._session = requests.Session()
         self._lending_daily: Optional[Dict[str, Dict[str, float]]] = None
-        self._stablecoin_volume_cache: Optional[List[Dict[str, Any]]] = None
+        self._stablecoin_transfer_cache: Dict[str, List[Dict[str, Any]]] = {}
 
     # -- private helpers ----------------------------------------------------
 
@@ -258,9 +269,9 @@ class TokenTerminal(BaseProvider):
             raise ValueError("Expected Token Terminal data rows")
         return rows
 
-    def _stablecoin_transfer_volume(self) -> List[Dict[str, Any]]:
-        if self._stablecoin_volume_cache is not None:
-            return self._stablecoin_volume_cache
+    def _stablecoin_transfers(self, metric_id: str) -> List[Dict[str, Any]]:
+        if metric_id in self._stablecoin_transfer_cache:
+            return self._stablecoin_transfer_cache[metric_id]
 
         assets = []
         offset = 0
@@ -315,7 +326,7 @@ class TokenTerminal(BaseProvider):
         ).isoformat()
         rows = self._response_rows(
             self._get(
-                "/metrics/asset_transfer_volume",
+                f"/metrics/{metric_id}",
                 params={
                     "asset_ids": ",".join(sorted(universe)),
                     "chain_ids": "solana",
@@ -328,17 +339,19 @@ class TokenTerminal(BaseProvider):
         for row in rows:
             asset_id = row["asset_id"]
             if asset_id not in universe or row.get("chain_id") != "solana":
-                raise ValueError("Unexpected asset or chain in stablecoin volume")
+                raise ValueError(
+                    "Unexpected asset or chain in stablecoin transfer data"
+                )
             date = str(row["timestamp"])[:10]
             datetime.date.fromisoformat(date)
             if row.get("value") is None:
                 continue
             value = float(row["value"])
             if not math.isfinite(value) or value < 0:
-                raise ValueError("Invalid stablecoin volume")
+                raise ValueError("Invalid stablecoin transfer data")
             daily = series.setdefault(asset_id, {})
             if date in daily:
-                raise ValueError("Duplicate daily stablecoin volume")
+                raise ValueError("Duplicate daily stablecoin transfer data")
             daily[date] = value
 
         for asset_id in universe - series.keys():
@@ -346,8 +359,8 @@ class TokenTerminal(BaseProvider):
             if detail.get("errors"):
                 raise ValueError("Token Terminal returned asset availability errors")
             available = detail.get("data", {}).get("available_metrics")
-            if not isinstance(available, list) or "asset_transfer_volume" in available:
-                raise ValueError(f"Missing Solana volume history for {asset_id}")
+            if not isinstance(available, list) or metric_id in available:
+                raise ValueError(f"Missing Solana transfer history for {asset_id}")
 
         first_dates = {asset: min(daily) for asset, daily in series.items()}
         dates = sorted({date for daily in series.values() for date in daily})
@@ -361,7 +374,7 @@ class TokenTerminal(BaseProvider):
                         "value": sum(series[asset][date] for asset in members),
                     }
                 )
-        self._stablecoin_volume_cache = result
+        self._stablecoin_transfer_cache[metric_id] = result
         return result
 
     @staticmethod
@@ -538,10 +551,10 @@ class TokenTerminal(BaseProvider):
             ]
         if metric in ("defi_dex_count", "stablecoin_count"):
             return self._fetch_count_rows(metric, start_date, end_date)
-        if metric == "stablecoin_transfer_volume":
+        if metric in ("stablecoin_transfer_volume", "stablecoin_transfer_count"):
             return [
                 row
-                for row in self._stablecoin_transfer_volume()
+                for row in self._stablecoin_transfers(config["metric_id"])
                 if start_date <= row["date"] <= end_date
             ]
         # A metric may map to one or more Token Terminal metric_ids. When several
