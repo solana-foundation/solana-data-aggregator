@@ -701,3 +701,88 @@ def test_stablecoin_asset_cache_retries_after_partial_listing_error():
         assert provider._usd_stablecoin_assets() == []
         assert provider._usd_stablecoin_assets() == []
         assert request.call_count == 2
+
+
+def _dex_trade_get(counts, volumes):
+    sectors = {
+        "exchange": [
+            "orca",
+            "meteora",
+            "raydium",
+            "stonkfun",
+            "axiomtrade",
+            "photon",
+            "jupiter",
+            "perps",
+        ],
+        "derivatives": ["perps"],
+        "dex-aggregators": ["jupiter"],
+    }
+
+    def get(endpoint, *, params=None):
+        if endpoint.startswith("/market-sectors/"):
+            return {
+                "data": {
+                    "projects": [
+                        {"project_id": p} for p in sectors[endpoint.split("/")[-1]]
+                    ]
+                }
+            }
+        assert params["chain_ids"] == "solana"
+        return {"data": counts if endpoint == "/metrics/trade_count" else volumes}
+
+    return get
+
+
+def test_dex_trades_sum_venues_without_aggregators_terminals_or_launchlab_overlap():
+    provider = TokenTerminal(api_key="test-key")
+    counts = [
+        _count_row(p, "2026-11-09", v)
+        for p, v in (
+            ("orca", 10),
+            ("meteora", 20),
+            ("raydium", 30),
+            ("stonkfun", 5),
+            ("axiomtrade", 100),
+            ("photon", 100),
+            ("jupiter", 100),
+            ("perps", 100),
+        )
+    ]
+    with patch.object(provider, "_get", side_effect=_dex_trade_get(counts, counts)):
+        assert provider.fetch_rows(
+            "defi_dex_transactions", "2026-11-09", "2026-11-09"
+        ) == [{"date": "2026-11-09", "value": 60}]
+        result = provider.get_metric("defi_dex_transactions", "2026-11-09", "solana")
+        assert result.metric_type == DefiMetricType.DEX_TRANSACTIONS
+
+
+def test_dex_trades_omit_days_with_missing_active_venue():
+    provider = TokenTerminal(api_key="test-key")
+    counts = [_count_row("orca", "2026-11-09", 10), _count_row("orca", "2026-11-10", 0)]
+    volumes = [
+        _count_row("orca", "2026-11-09", 100),
+        _count_row("raydium", "2026-11-09", 100),
+        _count_row("orca", "2026-11-10", 0),
+    ]
+    with patch.object(provider, "_get", side_effect=_dex_trade_get(counts, volumes)):
+        assert provider.fetch_rows(
+            "defi_dex_transactions", "2026-11-09", "2026-11-10"
+        ) == [{"date": "2026-11-10", "value": 0}]
+
+
+@pytest.mark.parametrize("value", [None, -1, float("nan"), float("inf")])
+def test_dex_trades_reject_invalid_values(value):
+    provider = TokenTerminal(api_key="test-key")
+    rows = [_count_row("orca", "2026-11-09", value)]
+    with patch.object(provider, "_get", side_effect=_dex_trade_get(rows, rows)):
+        with pytest.raises(ValueError, match="Invalid DEX metric value"):
+            provider.fetch_rows("defi_dex_transactions", "2026-11-09", "2026-11-09")
+
+
+def test_dex_trades_reject_duplicate_project_rows():
+    provider = TokenTerminal(api_key="test-key")
+    rows = [_count_row("orca", "2026-11-09", 10)] * 2
+    with patch.object(provider, "_get", side_effect=_dex_trade_get(rows, rows)):
+        with pytest.raises(ValueError, match="Duplicate DEX project metric row"):
+            provider.fetch_rows("defi_dex_transactions", "2026-11-09", "2026-11-09")

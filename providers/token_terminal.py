@@ -135,6 +135,17 @@ class TokenTerminal(BaseProvider):
                 "and assets without served volume are excluded."
             ),
         },
+        "defi_dex_transactions": {
+            "metric_id": "trade_count",
+            "methodology": (
+                "Daily trade events across Token Terminal-covered spot DEXs on "
+                "Solana, not distinct transactions. Multi-hop swaps may count "
+                "multiple trades. Derivatives, aggregators and trading terminals "
+                "are excluded. StonkFun is excluded because its LaunchLab trades "
+                "are already counted under Raydium. A day is omitted if a venue "
+                "with positive covered spot volume has no served trade count."
+            ),
+        },
         "defi_dex_count": {
             "metric_id": "trading_volume",
             "methodology": (
@@ -225,6 +236,7 @@ class TokenTerminal(BaseProvider):
     _DEFI_METRIC_TYPE_MAP: Dict[str, DefiMetricType] = {
         "defi_dex_volume": DefiMetricType.DEX_VOLUME,
         "defi_dex_count": DefiMetricType.DEX_COUNT,
+        "defi_dex_transactions": DefiMetricType.DEX_TRANSACTIONS,
     }
 
     _LENDING_METRIC_TYPE_MAP: Dict[str, LendingMetricType] = {
@@ -412,23 +424,66 @@ class TokenTerminal(BaseProvider):
             raise ValueError("Incomplete Token Terminal count response")
         return body["data"]
 
+    def _dex_projects(self) -> set[str]:
+        sectors = {}
+        for sector in ("exchange", "derivatives", "dex-aggregators"):
+            data = self._count_data(self._get(f"/market-sectors/{sector}"))
+            projects = data.get("projects") if isinstance(data, dict) else None
+            if not isinstance(projects, list):
+                raise ValueError("Missing market-sector project list")
+            sectors[sector] = {row["project_id"] for row in projects}
+        universe = (
+            sectors["exchange"] - sectors["derivatives"] - sectors["dex-aggregators"]
+        )
+        return universe
+
+    def _fetch_dex_trades(self, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+        universe = self._dex_projects() - {"axiomtrade", "photon", "stonkfun"}
+        params = {
+            "project_ids": "all",
+            "chain_ids": "solana",
+            "start": start_date,
+            "end": end_date,
+        }
+        daily: Dict[str, Dict[str, Dict[str, float]]] = {}
+        for metric_id in ("trade_count", "trading_volume"):
+            rows = self._count_data(self._get(f"/metrics/{metric_id}", params=params))
+            if not isinstance(rows, list):
+                raise ValueError("Missing DEX metric rows")
+            for row in rows:
+                date = str(row.get("timestamp", ""))[:10]
+                if not start_date <= date <= end_date:
+                    continue
+                if row.get("chain_id") != "solana":
+                    raise ValueError("Unexpected chain in DEX metric rows")
+                project = row["project_id"]
+                if project not in universe:
+                    continue
+                value = row.get("value")
+                if value is None or not math.isfinite(float(value)) or float(value) < 0:
+                    raise ValueError("Invalid DEX metric value")
+                series = daily.setdefault(date, {}).setdefault(metric_id, {})
+                if project in series:
+                    raise ValueError("Duplicate DEX project metric row")
+                series[project] = float(value)
+        result = []
+        for date, metrics in sorted(daily.items()):
+            counts = metrics.get("trade_count", {})
+            required = {
+                project
+                for project, value in metrics.get("trading_volume", {}).items()
+                if value > 0
+            }
+            if counts and metrics.get("trading_volume") and required <= counts.keys():
+                result.append({"date": date, "value": sum(counts.values())})
+        return result
+
     def _fetch_count_rows(
         self, metric: str, start_date: str, end_date: str
     ) -> List[Dict[str, Any]]:
         params = {"chain_ids": "solana", "start": start_date, "end": end_date}
         if metric == "defi_dex_count":
-            sectors = {}
-            for sector in ("exchange", "derivatives", "dex-aggregators"):
-                data = self._count_data(self._get(f"/market-sectors/{sector}"))
-                projects = data.get("projects") if isinstance(data, dict) else None
-                if not isinstance(projects, list):
-                    raise ValueError("Missing market-sector project list")
-                sectors[sector] = {row["project_id"] for row in projects}
-            universe = (
-                sectors["exchange"]
-                - sectors["derivatives"]
-                - sectors["dex-aggregators"]
-            )
+            universe = self._dex_projects()
             entity_field = "project_id"
             params["project_ids"] = "all"
         else:
@@ -552,6 +607,8 @@ class TokenTerminal(BaseProvider):
                 for date, values in sorted(self._fetch_lending_daily().items())
                 if start_date <= date <= end_date and field in values
             ]
+        if metric == "defi_dex_transactions":
+            return self._fetch_dex_trades(start_date, end_date)
         if metric in ("defi_dex_count", "stablecoin_count"):
             return self._fetch_count_rows(metric, start_date, end_date)
         if metric in ("stablecoin_transfer_volume", "stablecoin_transfer_count"):
