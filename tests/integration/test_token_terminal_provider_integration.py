@@ -103,3 +103,96 @@ def test_overview_metrics_live_api(
     assert isinstance(result, Overview)
     assert result.metric_type == metric_type
     assert low < result.value < high
+
+
+@pytest.mark.integration
+def test_get_overview_fees_live_api() -> None:
+    """Overview fees are returned in SOL."""
+    if not API_KEY:
+        pytest.skip(
+            "Set TOKEN_TERMINAL_API_KEY to run live Token Terminal integration tests."
+        )
+
+    provider = TokenTerminal(api_key=API_KEY)
+    metric = provider.get_metric(
+        metric="overview_fees",
+        date="2025-01-01",
+        chain="solana",
+    )
+
+    assert metric is not None
+    assert isinstance(metric, Overview)
+    assert metric.metric_type == OverviewMetricType.FEES
+    assert metric.unit == "SOL"
+    assert 100 < metric.value < 1_000_000
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("date", ["2025-01-01", "2026-11-09"])
+def test_stablecoin_transfer_volume_live_api(date: str) -> None:
+    if not API_KEY:
+        pytest.skip("Set TOKEN_TERMINAL_API_KEY to run live integration tests.")
+    provider = TokenTerminal(api_key=API_KEY)
+    metric = provider.get_metric("stablecoin_transfer_volume", date, "solana")
+    assert isinstance(metric, Stablecoin)
+    assert metric.metric_type == StablecoinMetricType.TRANSFER_VOLUME
+    assert metric.unit == "USD"
+    assert metric.value > 0
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("metric", ["defi_dex_count", "stablecoin_count"])
+@pytest.mark.parametrize("date", ["2025-01-01", "2026-11-15"])
+def test_positive_coverage_counts_live_api(metric: str, date: str) -> None:
+    if not API_KEY:
+        pytest.skip("Set TOKEN_TERMINAL_API_KEY to run live integration tests.")
+    provider = TokenTerminal(api_key=API_KEY)
+    result = provider.get_metric(metric, date, "solana")
+    assert result is not None
+    assert result.value > 0
+    assert result.value == int(result.value)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("date", ["2024-08-01", "2026-11-15"])
+def test_lending_metrics_live_api(date: str) -> None:
+    if not API_KEY:
+        pytest.skip("Set TOKEN_TERMINAL_API_KEY to run live integration tests.")
+    provider = TokenTerminal(api_key=API_KEY)
+    results = {
+        metric: provider.get_metric(metric, date, "solana")
+        for metric in provider._LENDING_METRIC_TYPE_MAP
+    }
+    assert all(result is not None for result in results.values())
+    deposits = results["lending_total_deposits"].value
+    borrowed = results["lending_total_borrowed"].value
+    utilization = results["lending_utilization_rate"].value
+    assert deposits > 0
+    assert 0 <= borrowed <= deposits
+    assert utilization == pytest.approx(100 * borrowed / deposits)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("date", ["2025-01-01", "2026-11-15"])
+def test_stablecoin_transfer_count_live_api(date: str) -> None:
+    if not API_KEY:
+        pytest.skip("Set TOKEN_TERMINAL_API_KEY to run live integration tests.")
+    provider = TokenTerminal(api_key=API_KEY)
+    result = provider.get_metric("stablecoin_transfer_count", date, "solana")
+    assert isinstance(result, Stablecoin)
+    assert result.metric_type == StablecoinMetricType.TRANSFER_COUNT
+    assert result.value > 0
+    assert result.value == int(result.value)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("date", ["2025-01-01", "2026-11-15"])
+def test_network_average_tps_live_api(date: str) -> None:
+    if not API_KEY:
+        pytest.skip("Set TOKEN_TERMINAL_API_KEY to run live integration tests.")
+    provider = TokenTerminal(api_key=API_KEY)
+    result = provider.get_metric("network_avg_tps", date, "solana")
+    assert isinstance(result, Network)
+    assert result.metric_type == NetworkMetricType.AVG_TPS
+    assert result.unit == "TPS"
+    assert 0 < result.value < 100000

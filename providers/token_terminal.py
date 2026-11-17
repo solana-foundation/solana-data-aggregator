@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import math
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -34,6 +35,17 @@ class TokenTerminal(BaseProvider):
             "metric_id": "price",
             "date_field": "timestamp",
             "value_field": "price",
+        },
+        "overview_fees": {
+            "metric_id": "fees,price",
+            "date_field": "timestamp",
+            "numerator_field": "fees",
+            "denominator_field": "price",
+            "methodology": (
+                "Daily base and priority transaction fees in SOL, including vote "
+                "and failed transactions, excluding Jito tips. USD fees are "
+                "divided by the same daily SOL price used for their conversion."
+            ),
         },
         "overview_fee_payers": {
             "metric_id": "active_addresses_daily",
@@ -102,16 +114,91 @@ class TokenTerminal(BaseProvider):
                 "and pre-minted, not-yet-issued balances."
             ),
         },
+        "stablecoin_transfer_count": {
+            "metric_id": "asset_transfer_count",
+            "methodology": (
+                "Token transfer events for covered USD-pegged stablecoins on Solana, "
+                "including bridged deployments. Counts SPL and Token-2022 transfer "
+                "instructions, not distinct transactions. Assets enter at their "
+                "first served observation; later gaps omit the aggregate day. "
+                "Assets without served counts and non-USD pegs are excluded."
+            ),
+        },
+        "stablecoin_transfer_volume": {
+            "metric_id": "asset_transfer_volume",
+            "methodology": (
+                "USD transfer volume for USD-pegged stablecoins covered by Token "
+                "Terminal on Solana, including mint and burn flows after "
+                "premint/preburn corrections. Each asset enters the aggregate "
+                "at its first served Solana observation. Missing days after "
+                "that observation are omitted from the aggregate. Non-USD pegs "
+                "and assets without served volume are excluded."
+            ),
+        },
+        "defi_dex_transactions": {
+            "metric_id": "trade_count",
+            "methodology": (
+                "Daily trade events across Token Terminal-covered spot DEXs on "
+                "Solana, not distinct transactions. Multi-hop swaps may count "
+                "multiple trades. Derivatives, aggregators and trading terminals "
+                "are excluded. StonkFun is excluded because its LaunchLab trades "
+                "are already counted under Raydium. A day is omitted if a venue "
+                "with positive covered spot volume has no served trade count."
+            ),
+        },
+        "defi_dex_count": {
+            "metric_id": "trading_volume",
+            "methodology": (
+                "Number of Token Terminal-covered exchange protocols with "
+                "positive spot trading volume on Solana that day, excluding "
+                "derivatives and DEX aggregators. Each project is counted once."
+            ),
+        },
+        "stablecoin_count": {
+            "metric_id": "asset_market_cap_circulating",
+            "methodology": (
+                "Number of Token Terminal-covered USD-pegged stablecoin assets "
+                "with positive circulating market cap on Solana that day. "
+                "Includes bridged deployments; each asset is counted once."
+            ),
+        },
         "defi_dex_volume": {
             "metric_id": "ecosystem_dex_trading_volume",
             "date_field": "timestamp",
             "value_field": "ecosystem_dex_trading_volume",
             "methodology": "DEX trade volume varies by indexed venues, pricing, and filtering methodology.",
         },
+        "lending_total_deposits": {
+            "field": "deposits",
+            "methodology": (
+                "USD deposits supplied to Kamino Lend and Jupiter Lend on Solana, "
+                "including borrowed liquidity. Other lending protocols are not covered."
+            ),
+        },
+        "lending_utilization_rate": {
+            "field": "utilization_rate",
+            "methodology": (
+                "Total borrowed divided by total supplied deposits across Kamino "
+                "Lend and Jupiter Lend on Solana, multiplied by 100. Zero-deposit "
+                "days are omitted. Both sums use the same covered products."
+            ),
+        },
         "lending_total_borrowed": {
-            "metric_id": "ecosystem_active_loans",
+            "field": "borrowed",
+            "methodology": (
+                "USD active loans from Kamino Lend and Jupiter Lend on Solana. "
+                "Jupiter Lend is counted once, under Jupiter rather than Fluid."
+            ),
+        },
+        "network_avg_tps": {
+            "metric_id": "non_vote_transaction_count",
             "date_field": "timestamp",
-            "value_field": "ecosystem_active_loans",
+            "value_field": "non_vote_transaction_count",
+            "divisor": 86400,
+            "methodology": (
+                "Daily successful and failed non-vote transactions divided by "
+                "86,400 seconds. Vote transactions are excluded."
+            ),
         },
         "network_validator_count": {
             "metric_id": "number_of_validators",
@@ -131,6 +218,7 @@ class TokenTerminal(BaseProvider):
         "overview_tx_count_total": OverviewMetricType.TX_COUNT_TOTAL,
         "overview_tx_count_vote": OverviewMetricType.TX_COUNT_VOTE,
         "overview_sol_price": OverviewMetricType.SOL_PRICE,
+        "overview_fees": OverviewMetricType.FEES,
         "overview_fee_payers": OverviewMetricType.FEE_PAYERS,
         "overview_non_vote_tx_count_success": OverviewMetricType.TX_COUNT_NON_VOTE_SUCCESS,
         "overview_non_vote_tx_count_failed": OverviewMetricType.TX_COUNT_NON_VOTE_FAILED,
@@ -140,22 +228,31 @@ class TokenTerminal(BaseProvider):
 
     _STABLECOIN_METRIC_TYPE_MAP: Dict[str, StablecoinMetricType] = {
         "stablecoin_circulating_supply": StablecoinMetricType.CIRCULATING_SUPPLY,
+        "stablecoin_transfer_volume": StablecoinMetricType.TRANSFER_VOLUME,
+        "stablecoin_transfer_count": StablecoinMetricType.TRANSFER_COUNT,
+        "stablecoin_count": StablecoinMetricType.COUNT,
     }
 
     _DEFI_METRIC_TYPE_MAP: Dict[str, DefiMetricType] = {
         "defi_dex_volume": DefiMetricType.DEX_VOLUME,
+        "defi_dex_count": DefiMetricType.DEX_COUNT,
+        "defi_dex_transactions": DefiMetricType.DEX_TRANSACTIONS,
     }
 
     _LENDING_METRIC_TYPE_MAP: Dict[str, LendingMetricType] = {
         "lending_total_borrowed": LendingMetricType.TOTAL_BORROWED,
+        "lending_total_deposits": LendingMetricType.TOTAL_DEPOSITS,
+        "lending_utilization_rate": LendingMetricType.UTILIZATION_RATE,
     }
 
     _NETWORK_METRIC_TYPE_MAP: Dict[str, NetworkMetricType] = {
+        "network_avg_tps": NetworkMetricType.AVG_TPS,
         "network_validator_count": NetworkMetricType.VALIDATOR_COUNT,
     }
 
     BASE_URL = "https://api.tokenterminal.com/v2"
     PROJECT = "solana"
+    LENDING_PRODUCTS = (("kamino", "kaminolend"), ("jupiter", "jupiterlend"))
 
     def __init__(self, *, api_key: Optional[str] = None) -> None:
         resolved_api_key = api_key or self._resolve_api_key()
@@ -167,6 +264,9 @@ class TokenTerminal(BaseProvider):
             api_key=resolved_api_key,
         )
         self._session = requests.Session()
+        self._lending_daily: Optional[Dict[str, Dict[str, float]]] = None
+        self._stablecoin_assets: Optional[List[Dict[str, Any]]] = None
+        self._stablecoin_transfer_cache: Dict[str, List[Dict[str, Any]]] = {}
 
     # -- private helpers ----------------------------------------------------
 
@@ -184,6 +284,311 @@ class TokenTerminal(BaseProvider):
         resp.raise_for_status()
         return resp.json()
 
+    @staticmethod
+    def _response_rows(body: Any) -> List[Dict[str, Any]]:
+        if isinstance(body, dict) and body.get("errors"):
+            raise ValueError("Token Terminal returned partial API errors")
+        rows = body.get("data") if isinstance(body, dict) else body
+        if not isinstance(rows, list):
+            raise ValueError("Expected Token Terminal data rows")
+        return rows
+
+    def _usd_stablecoin_assets(self) -> List[Dict[str, Any]]:
+        if self._stablecoin_assets is not None:
+            return self._stablecoin_assets
+
+        assets = []
+        offset = 0
+        while True:
+            body = self._get(
+                "/assets",
+                params={
+                    "asset_types": "stablecoin",
+                    "reference_asset_ids": "usdollar",
+                    "limit": 1000,
+                    "offset": offset,
+                },
+            )
+            page = self._response_rows(body)
+            assets.extend(page)
+            offset += len(page)
+            total = body.get("total_count") if isinstance(body, dict) else None
+            if not page or (isinstance(total, int) and offset >= total):
+                break
+            if total is None and len(page) < 1000:
+                break
+
+        self._stablecoin_assets = [
+            asset
+            for asset in assets
+            if asset.get("reference_asset_id") == "usdollar"
+            and any(
+                address.get("chain_id") == "solana"
+                for address in asset.get("addresses", [])
+            )
+        ]
+        return self._stablecoin_assets
+
+    def _stablecoin_transfers(self, metric_id: str) -> List[Dict[str, Any]]:
+        if metric_id in self._stablecoin_transfer_cache:
+            return self._stablecoin_transfer_cache[metric_id]
+
+        assets = self._usd_stablecoin_assets()
+
+        universe = set()
+        deployments: Dict[frozenset[str], str] = {}
+        seen_addresses: set[str] = set()
+        for asset in assets:
+            if asset.get("reference_asset_id") != "usdollar":
+                continue
+            addresses = frozenset(
+                address["token_address"]
+                for address in asset.get("addresses", [])
+                if address.get("chain_id") == "solana"
+            )
+            if not addresses:
+                continue
+            if addresses in deployments:
+                continue
+            if seen_addresses.intersection(addresses):
+                raise ValueError("Overlapping stablecoin deployments")
+            deployments[addresses] = asset["asset_id"]
+            seen_addresses.update(addresses)
+            universe.add(asset["asset_id"])
+        if not universe:
+            raise ValueError("No USD-pegged Solana stablecoins found")
+        if len(universe) > 300:
+            raise ValueError("Stablecoin universe exceeds API asset limit")
+
+        # Fetch available history once so a narrow window cannot hide earlier membership.
+        yesterday = (
+            datetime.datetime.now(datetime.timezone.utc).date()
+            - datetime.timedelta(days=1)
+        ).isoformat()
+        rows = self._response_rows(
+            self._get(
+                f"/metrics/{metric_id}",
+                params={
+                    "asset_ids": ",".join(sorted(universe)),
+                    "chain_ids": "solana",
+                    "start": "2020-01-01",
+                    "end": yesterday,
+                },
+            )
+        )
+        series: Dict[str, Dict[str, float]] = {}
+        for row in rows:
+            asset_id = row["asset_id"]
+            if asset_id not in universe or row.get("chain_id") != "solana":
+                raise ValueError(
+                    "Unexpected asset or chain in stablecoin transfer data"
+                )
+            date = str(row["timestamp"])[:10]
+            datetime.date.fromisoformat(date)
+            if row.get("value") is None:
+                continue
+            value = float(row["value"])
+            if not math.isfinite(value) or value < 0:
+                raise ValueError("Invalid stablecoin transfer data")
+            daily = series.setdefault(asset_id, {})
+            if date in daily:
+                raise ValueError("Duplicate daily stablecoin transfer data")
+            daily[date] = value
+
+        for asset_id in universe - series.keys():
+            detail = self._get(f"/assets/{asset_id}")
+            if detail.get("errors"):
+                raise ValueError("Token Terminal returned asset availability errors")
+            available = detail.get("data", {}).get("available_metrics")
+            if not isinstance(available, list) or metric_id in available:
+                raise ValueError(f"Missing Solana transfer history for {asset_id}")
+
+        first_dates = {asset: min(daily) for asset, daily in series.items()}
+        dates = sorted({date for daily in series.values() for date in daily})
+        result = []
+        for date in dates:
+            members = [asset for asset, first in first_dates.items() if first <= date]
+            if all(date in series[asset] for asset in members):
+                result.append(
+                    {
+                        "date": date,
+                        "value": sum(series[asset][date] for asset in members),
+                    }
+                )
+        self._stablecoin_transfer_cache[metric_id] = result
+        return result
+
+    @staticmethod
+    def _count_data(body: Any) -> Any:
+        if not isinstance(body, dict) or body.get("errors") or "data" not in body:
+            raise ValueError("Incomplete Token Terminal count response")
+        return body["data"]
+
+    def _dex_projects(self) -> set[str]:
+        sectors = {}
+        for sector in ("exchange", "derivatives", "dex-aggregators"):
+            data = self._count_data(self._get(f"/market-sectors/{sector}"))
+            projects = data.get("projects") if isinstance(data, dict) else None
+            if not isinstance(projects, list):
+                raise ValueError("Missing market-sector project list")
+            sectors[sector] = {row["project_id"] for row in projects}
+        universe = (
+            sectors["exchange"] - sectors["derivatives"] - sectors["dex-aggregators"]
+        )
+        return universe
+
+    def _fetch_dex_trades(self, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+        universe = self._dex_projects() - {"axiomtrade", "photon", "stonkfun"}
+        params = {
+            "project_ids": "all",
+            "chain_ids": "solana",
+            "start": start_date,
+            "end": end_date,
+        }
+        daily: Dict[str, Dict[str, Dict[str, float]]] = {}
+        for metric_id in ("trade_count", "trading_volume"):
+            rows = self._count_data(self._get(f"/metrics/{metric_id}", params=params))
+            if not isinstance(rows, list):
+                raise ValueError("Missing DEX metric rows")
+            for row in rows:
+                date = str(row.get("timestamp", ""))[:10]
+                if not start_date <= date <= end_date:
+                    continue
+                if row.get("chain_id") != "solana":
+                    raise ValueError("Unexpected chain in DEX metric rows")
+                project = row["project_id"]
+                if project not in universe:
+                    continue
+                value = row.get("value")
+                if value is None or not math.isfinite(float(value)) or float(value) < 0:
+                    raise ValueError("Invalid DEX metric value")
+                series = daily.setdefault(date, {}).setdefault(metric_id, {})
+                if project in series:
+                    raise ValueError("Duplicate DEX project metric row")
+                series[project] = float(value)
+        result = []
+        for date, metrics in sorted(daily.items()):
+            counts = metrics.get("trade_count", {})
+            required = {
+                project
+                for project, value in metrics.get("trading_volume", {}).items()
+                if value > 0
+            }
+            if counts and metrics.get("trading_volume") and required <= counts.keys():
+                result.append({"date": date, "value": sum(counts.values())})
+        return result
+
+    def _fetch_count_rows(
+        self, metric: str, start_date: str, end_date: str
+    ) -> List[Dict[str, Any]]:
+        params = {"chain_ids": "solana", "start": start_date, "end": end_date}
+        if metric == "defi_dex_count":
+            universe = self._dex_projects()
+            entity_field = "project_id"
+            params["project_ids"] = "all"
+        else:
+            universe = {asset["asset_id"] for asset in self._usd_stablecoin_assets()}
+            if not universe or len(universe) > 300:
+                raise ValueError(
+                    "Stablecoin count universe is empty or exceeds API limit"
+                )
+            entity_field = "asset_id"
+            params["asset_ids"] = ",".join(sorted(universe))
+            params["assets_bridged"] = "true"
+
+        rows = self._count_data(
+            self._get(
+                f"/metrics/{self.METRIC_MAP[metric]['metric_id']}",
+                params=params,
+            )
+        )
+        if not isinstance(rows, list):
+            raise ValueError("Missing count metric rows")
+        daily: Dict[str, set[str]] = {}
+        for row in rows:
+            date = str(row.get("timestamp", ""))[:10]
+            if not start_date <= date <= end_date:
+                continue
+            if row.get("chain_id") != "solana":
+                raise ValueError("Unexpected chain in count metric rows")
+            entity = row[entity_field]
+            if entity not in universe:
+                continue
+            if row.get("value") is None:
+                raise ValueError("Missing count metric value")
+            value = float(row["value"])
+            if not math.isfinite(value) or value < 0:
+                raise ValueError("Invalid count metric value")
+            daily.setdefault(date, set())
+            if value > 0:
+                daily[date].add(entity)
+        return [
+            {"date": date, "value": len(entities)}
+            for date, entities in sorted(daily.items())
+        ]
+
+    def _fetch_lending_daily(self) -> Dict[str, Dict[str, float]]:
+        if self._lending_daily is not None:
+            return self._lending_daily
+        yesterday = (
+            datetime.datetime.now(datetime.timezone.utc).date()
+            - datetime.timedelta(days=1)
+        ).isoformat()
+        series: Dict[str, Dict[str, Dict[str, float]]] = {}
+        for project, product in self.LENDING_PRODUCTS:
+            body = self._get(
+                f"/projects/{project}/products/{product}/metrics",
+                params={
+                    "metric_ids": "tvl,active_loans",
+                    "chain_ids": "solana",
+                    "start": "2020-01-01",
+                    "end": yesterday,
+                },
+            )
+            if isinstance(body, dict) and body.get("errors"):
+                raise ValueError(f"Incomplete lending API response for {product}")
+            rows = body.get("data") if isinstance(body, dict) else body
+            if not isinstance(rows, list):
+                raise ValueError(f"Missing lending rows for {product}")
+            daily = {}
+            for row in rows:
+                date = str(row.get("timestamp", ""))[:10]
+                datetime.date.fromisoformat(date)
+                if row.get("chain_id") != "solana" or row.get("product_id") != product:
+                    raise ValueError(f"Unexpected lending dimensions for {product}")
+                if row.get("tvl") is None or row.get("active_loans") is None:
+                    continue
+                deposits, borrowed = float(row["tvl"]), float(row["active_loans"])
+                if not all(math.isfinite(v) and v >= 0 for v in (deposits, borrowed)):
+                    raise ValueError(f"Invalid lending balances for {product}")
+                if date in daily:
+                    raise ValueError(f"Duplicate lending day for {product}")
+                daily[date] = {"deposits": deposits, "borrowed": borrowed}
+            if not daily:
+                raise ValueError(f"No complete lending history for {product}")
+            series[product] = daily
+
+        first_dates = {product: min(daily) for product, daily in series.items()}
+        dates = sorted({date for daily in series.values() for date in daily})
+        result = {}
+        for date in dates:
+            products = [
+                product for product, first in first_dates.items() if first <= date
+            ]
+            if not all(date in series[product] for product in products):
+                continue
+            deposits = sum(series[p][date]["deposits"] for p in products)
+            borrowed = sum(series[p][date]["borrowed"] for p in products)
+            values = {
+                "deposits": deposits,
+                "borrowed": borrowed,
+            }
+            if deposits > 0:
+                values["utilization_rate"] = borrowed / deposits * 100
+            result[date] = values
+        self._lending_daily = result
+        return result
+
     # -- BaseProvider interface ---------------------------------------------
 
     @property
@@ -195,12 +600,32 @@ class TokenTerminal(BaseProvider):
     ) -> List[Dict[str, Any]]:
         """Return normalized {"date": str, "value": float} records for the given range (both dates inclusive)."""
         config = self.METRIC_MAP[metric]
+        if metric in self._LENDING_METRIC_TYPE_MAP:
+            field = config["field"]
+            return [
+                {"date": date, "value": values[field]}
+                for date, values in sorted(self._fetch_lending_daily().items())
+                if start_date <= date <= end_date and field in values
+            ]
+        if metric == "defi_dex_transactions":
+            return self._fetch_dex_trades(start_date, end_date)
+        if metric in ("defi_dex_count", "stablecoin_count"):
+            return self._fetch_count_rows(metric, start_date, end_date)
+        if metric in ("stablecoin_transfer_volume", "stablecoin_transfer_count"):
+            return [
+                row
+                for row in self._stablecoin_transfers(config["metric_id"])
+                if start_date <= row["date"] <= end_date
+            ]
         # A metric may map to one or more Token Terminal metric_ids. When several
         # are provided (e.g. native + bridged stablecoin supply), their per-day
         # values are summed into a single figure.
-        value_fields = config["value_field"]
-        if isinstance(value_fields, str):
-            value_fields = [value_fields]
+        numerator_field = config.get("numerator_field")
+        denominator_field = config.get("denominator_field")
+        if numerator_field is None:
+            value_fields = config["value_field"]
+            if isinstance(value_fields, str):
+                value_fields = [value_fields]
         body = self._get(
             f"/projects/{self.PROJECT}/metrics",
             params={
@@ -216,6 +641,21 @@ class TokenTerminal(BaseProvider):
             row_date = str(row.get(config["date_field"], ""))[:10]
             if not row_date or not (start_date <= row_date <= end_date):
                 continue
+            if numerator_field is not None:
+                numerator = row.get(numerator_field)
+                denominator = row.get(denominator_field)
+                if numerator is None or denominator is None:
+                    continue
+                denominator_value = float(denominator)
+                if denominator_value <= 0:
+                    continue
+                result.append(
+                    {
+                        "date": row_date,
+                        "value": float(numerator) / denominator_value,
+                    }
+                )
+                continue
             # Sum the values that are present for this day. If one series has no
             # value for a date (e.g. bridged supply on dates before any bridged
             # stablecoins existed on the chain), the absent series is treated as
@@ -225,7 +665,7 @@ class TokenTerminal(BaseProvider):
             present = [v for v in present if v is not None]
             if not present:
                 continue
-            value = sum(float(v) for v in present)
+            value = sum(float(v) for v in present) / config.get("divisor", 1)
             result.append({"date": row_date, "value": value})
         return result
 
