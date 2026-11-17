@@ -464,7 +464,7 @@ def test_count_partial_metadata_errors_fail(metric):
     with patch.object(
         provider, "_get", return_value={"data": [], "errors": [{"code": "NOT_FOUND"}]}
     ):
-        with pytest.raises(ValueError, match="Incomplete"):
+        with pytest.raises(ValueError, match="Incomplete|partial API errors"):
             provider.fetch_rows(metric, "2026-11-09", "2026-11-10")
 
 
@@ -642,3 +642,62 @@ def test_network_average_tps_uses_non_vote_count_and_preserves_zero():
         assert (
             get.call_args.kwargs["params"]["metric_ids"] == "non_vote_transaction_count"
         )
+
+
+def test_stablecoin_metrics_share_paginated_asset_cache():
+    provider = TokenTerminal(api_key="test-key")
+    assets = [
+        {
+            "asset_id": asset,
+            "reference_asset_id": "usdollar",
+            "addresses": [{"chain_id": "solana", "token_address": asset}],
+        }
+        for asset in ("usdc", "usdt")
+    ]
+
+    def get(endpoint, *, params=None):
+        if endpoint == "/assets":
+            return {"data": [assets[params["offset"]]], "total_count": 2}
+        assert params["asset_ids"] == "usdc,usdt"
+        return {
+            "data": [
+                {
+                    "asset_id": asset["asset_id"],
+                    "chain_id": "solana",
+                    "timestamp": "2026-11-15",
+                    "value": 10,
+                }
+                for asset in assets
+            ]
+        }
+
+    with patch.object(provider, "_get", side_effect=get) as request:
+        for metric, value in (
+            ("stablecoin_transfer_volume", 20),
+            ("stablecoin_transfer_count", 20),
+            ("stablecoin_count", 2),
+        ):
+            assert provider.fetch_rows(metric, "2026-11-15", "2026-11-15") == [
+                {"date": "2026-11-15", "value": value}
+            ]
+        listings = [
+            call for call in request.call_args_list if call.args[0] == "/assets"
+        ]
+        assert [call.kwargs["params"]["offset"] for call in listings] == [0, 1]
+
+
+def test_stablecoin_asset_cache_retries_after_partial_listing_error():
+    provider = TokenTerminal(api_key="test-key")
+    with patch.object(
+        provider,
+        "_get",
+        side_effect=[
+            {"data": [], "errors": [{"code": "ERROR"}]},
+            {"data": [], "total_count": 0},
+        ],
+    ) as request:
+        with pytest.raises(ValueError, match="partial API errors"):
+            provider._usd_stablecoin_assets()
+        assert provider._usd_stablecoin_assets() == []
+        assert provider._usd_stablecoin_assets() == []
+        assert request.call_count == 2

@@ -253,6 +253,7 @@ class TokenTerminal(BaseProvider):
         )
         self._session = requests.Session()
         self._lending_daily: Optional[Dict[str, Dict[str, float]]] = None
+        self._stablecoin_assets: Optional[List[Dict[str, Any]]] = None
         self._stablecoin_transfer_cache: Dict[str, List[Dict[str, Any]]] = {}
 
     # -- private helpers ----------------------------------------------------
@@ -280,9 +281,9 @@ class TokenTerminal(BaseProvider):
             raise ValueError("Expected Token Terminal data rows")
         return rows
 
-    def _stablecoin_transfers(self, metric_id: str) -> List[Dict[str, Any]]:
-        if metric_id in self._stablecoin_transfer_cache:
-            return self._stablecoin_transfer_cache[metric_id]
+    def _usd_stablecoin_assets(self) -> List[Dict[str, Any]]:
+        if self._stablecoin_assets is not None:
+            return self._stablecoin_assets
 
         assets = []
         offset = 0
@@ -304,6 +305,23 @@ class TokenTerminal(BaseProvider):
                 break
             if total is None and len(page) < 1000:
                 break
+
+        self._stablecoin_assets = [
+            asset
+            for asset in assets
+            if asset.get("reference_asset_id") == "usdollar"
+            and any(
+                address.get("chain_id") == "solana"
+                for address in asset.get("addresses", [])
+            )
+        ]
+        return self._stablecoin_assets
+
+    def _stablecoin_transfers(self, metric_id: str) -> List[Dict[str, Any]]:
+        if metric_id in self._stablecoin_transfer_cache:
+            return self._stablecoin_transfer_cache[metric_id]
+
+        assets = self._usd_stablecoin_assets()
 
         universe = set()
         deployments: Dict[frozenset[str], str] = {}
@@ -414,33 +432,7 @@ class TokenTerminal(BaseProvider):
             entity_field = "project_id"
             params["project_ids"] = "all"
         else:
-            universe = set()
-            offset = 0
-            while True:
-                body = self._get(
-                    "/assets",
-                    params={
-                        "asset_types": "stablecoin",
-                        "reference_asset_ids": "usdollar",
-                        "limit": 1000,
-                        "offset": offset,
-                    },
-                )
-                page = self._count_data(body)
-                if not isinstance(page, list):
-                    raise ValueError("Missing stablecoin asset list")
-                for asset in page:
-                    if asset.get("reference_asset_id") == "usdollar" and any(
-                        address.get("chain_id") == "solana"
-                        for address in asset.get("addresses", [])
-                    ):
-                        universe.add(asset["asset_id"])
-                offset += len(page)
-                total = body.get("total_count")
-                if not page or (isinstance(total, int) and offset >= total):
-                    break
-                if total is None and len(page) < 1000:
-                    break
+            universe = {asset["asset_id"] for asset in self._usd_stablecoin_assets()}
             if not universe or len(universe) > 300:
                 raise ValueError(
                     "Stablecoin count universe is empty or exceeds API limit"
