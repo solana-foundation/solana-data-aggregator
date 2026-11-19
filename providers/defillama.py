@@ -277,6 +277,10 @@ class DefiLlama(BaseProvider):
             .isoformat()
         )
 
+    @staticmethod
+    def _utc_today() -> str:
+        return datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+
     def fetch_rows(
         self, metric: str, start_date: str, end_date: str, **kwargs: Any
     ) -> List[Dict[str, Any]]:
@@ -289,6 +293,11 @@ class DefiLlama(BaseProvider):
         result = []
 
         if config.get("count_solana_stablecoins"):
+            # /stablecoins/stablecoins only has current amounts, so the count is a
+            # snapshot for today (UTC) and there is nothing to return for other days.
+            today = self._utc_today()
+            if not (start_date <= today <= end_date):
+                return []
             raw = self._get(
                 f"{self.base_url}{config['endpoint']}",
                 params={"includePrices": "true"},
@@ -305,7 +314,6 @@ class DefiLlama(BaseProvider):
                 )
                 > 0
             )
-            today = datetime.date.today().isoformat()
             return [{"date": today, "value": float(count)}]
 
         if config.get("coins_chart"):
