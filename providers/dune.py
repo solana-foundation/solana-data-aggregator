@@ -13,7 +13,7 @@ from metrics.defi import Defi, DefiMetricType
 from metrics.network import Network, NetworkMetricType
 from metrics.overview import Overview, OverviewMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
-from providers.base import BaseProvider
+from providers.base import BaseProvider, stablecoin_supply_rows
 
 
 class Dune(BaseProvider):
@@ -322,6 +322,19 @@ class Dune(BaseProvider):
 
     BASE_URL = "https://api.dune.com/api/v1"
 
+    # Same source as stablecoin_circulating_supply, split per token instead of summed.
+    STABLECOIN_SUPPLY_BY_TOKEN_SQL = """
+        SELECT
+            day,
+            token_address,
+            MAX(token_symbol) AS token_symbol,
+            SUM(circulating_supply_usd) AS circulating_supply_usd
+        FROM solana_team.stablecoins_solana_circulating_supply
+        WHERE day BETWEEN DATE '{start_date}' AND DATE '{end_date}'
+        GROUP BY day, token_address
+        ORDER BY day ASC
+    """
+
     def __init__(
         self,
         *,
@@ -410,6 +423,29 @@ class Dune(BaseProvider):
                 continue
             result.append({"date": row_date, "value": float(value)})
         return result
+
+    def fetch_stablecoin_supply_by_token(
+        self, start_date: str, end_date: str
+    ) -> List[Dict[str, Any]]:
+        """Circulating supply (USD) per Solana stablecoin per day, both dates inclusive.
+
+        Returns {"date", "mint_address", "token", "value"} records; summing value
+        per date gives the stablecoin_circulating_supply metric.
+        """
+        raw_rows = self._run_sql(
+            self.STABLECOIN_SUPPLY_BY_TOKEN_SQL.format(
+                start_date=start_date, end_date=end_date
+            )
+        )
+        return stablecoin_supply_rows(
+            raw_rows,
+            date_field="day",
+            mint_field="token_address",
+            token_field="token_symbol",
+            value_field="circulating_supply_usd",
+            start_date=start_date,
+            end_date=end_date,
+        )
 
     # -- BaseProvider interface ---------------------------------------------
 
