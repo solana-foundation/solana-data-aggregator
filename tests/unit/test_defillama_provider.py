@@ -345,6 +345,8 @@ def test_fetch_rows_sol_price_range_longer_than_one_request() -> None:
     assert dates == sorted(dates)
     # 731 days at up to 364 days per request need three requests.
     assert mock_get.call_count == 3
+
+
 def _llama_asset(symbol, gecko_id, peg, solana_amount, price=None) -> dict:
     return {
         "symbol": symbol,
@@ -413,3 +415,65 @@ def test_fetch_stablecoin_supply_by_token_is_empty_outside_today() -> None:
         rows = provider.fetch_stablecoin_supply_by_token("2020-01-01", "2020-01-02")
     assert rows == []
     mock_get.assert_not_called()
+
+
+_STABLECOINS_RAW = {
+    "peggedAssets": [
+        {  # USD stablecoin on Solana: counted
+            "pegType": "peggedUSD",
+            "chainCirculating": {"Solana": {"current": {"peggedUSD": 1_000.0}}},
+        },
+        {  # USD stablecoin with nothing on Solana: not counted
+            "pegType": "peggedUSD",
+            "chainCirculating": {"Solana": {"current": {"peggedUSD": 0}}},
+        },
+        {  # Not USD-pegged: not counted
+            "pegType": "peggedEUR",
+            "chainCirculating": {"Solana": {"current": {"peggedEUR": 500.0}}},
+        },
+    ]
+}
+
+
+def test_fetch_rows_stablecoin_count_is_a_snapshot_for_today() -> None:
+    provider = DefiLlama()
+
+    with (
+        patch.object(DefiLlama, "_utc_today", return_value="2026-11-18"),
+        patch.object(
+            provider._session, "get", return_value=_make_mock_resp(_STABLECOINS_RAW)
+        ),
+    ):
+        rows = provider.fetch_rows("stablecoin_count", "2026-11-12", "2026-11-18")
+
+    assert rows == [{"date": "2026-11-18", "value": 1.0}]
+
+
+def test_fetch_rows_stablecoin_count_returns_nothing_for_past_ranges() -> None:
+    # The API only has current amounts, so a backfill must not get today's count.
+    provider = DefiLlama()
+
+    with (
+        patch.object(DefiLlama, "_utc_today", return_value="2026-11-18"),
+        patch.object(
+            provider._session, "get", return_value=_make_mock_resp(_STABLECOINS_RAW)
+        ) as mock_get,
+    ):
+        rows = provider.fetch_rows("stablecoin_count", "2025-01-01", "2025-01-31")
+
+    assert rows == []
+    mock_get.assert_not_called()
+
+
+def test_get_metric_stablecoin_count_for_past_date_is_none() -> None:
+    provider = DefiLlama()
+
+    with (
+        patch.object(DefiLlama, "_utc_today", return_value="2026-11-18"),
+        patch.object(
+            provider._session, "get", return_value=_make_mock_resp(_STABLECOINS_RAW)
+        ),
+    ):
+        result = provider.get_metric("stablecoin_count", "2025-01-01", "solana")
+
+    assert result is None
