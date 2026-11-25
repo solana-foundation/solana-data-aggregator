@@ -181,11 +181,11 @@ class TopLedger(BaseProvider):
             "value_field": "unique_traders",
             "methodology": "Number of unique daily traders on Solana perp venues",
         },
-        "perps_open_interest": {
+        "perps_open_interest_double_sided": {
             "query_id": 15343,
             "date_field": "block_date",
             "value_field": "total_open_interest_usd",
-            "methodology": "Total open interest across Solana perp venues in USD",
+            "methodology": "Double-sided: long and short open interest both counted, in USD.",
         },
         "network_total_stake": {
             "query_id": 15379,
@@ -246,7 +246,7 @@ class TopLedger(BaseProvider):
         "perps_transactions": PerpsMetricType.TRANSACTIONS,
         "perps_venue_count": PerpsMetricType.VENUE_COUNT,
         "perps_traders": PerpsMetricType.TRADERS,
-        "perps_open_interest": PerpsMetricType.OPEN_INTEREST,
+        "perps_open_interest_double_sided": PerpsMetricType.OPEN_INTEREST_DOUBLE_SIDED,
     }
 
     _NETWORK_METRIC_TYPE_MAP: Dict[str, NetworkMetricType] = {

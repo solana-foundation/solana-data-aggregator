@@ -254,13 +254,17 @@ def test_fetch_rows_perps_volume_sums_configured_venues() -> None:
     )
 
 
-def test_fetch_rows_perps_open_interest_reads_open_interest_breakdown() -> None:
+def test_fetch_rows_perps_open_interest_single_sided_reads_open_interest_breakdown() -> (
+    None
+):
     provider = DefiLlama()
 
     with patch.object(
         provider._session, "get", return_value=_make_mock_resp(_PERPS_BREAKDOWN)
     ) as mock_get:
-        rows = provider.fetch_rows("perps_open_interest", "2026-10-11", "2026-10-11")
+        rows = provider.fetch_rows(
+            "perps_open_interest_single_sided", "2026-10-11", "2026-10-11"
+        )
 
     assert rows == [{"date": "2026-10-11", "value": 140.0}]
     assert mock_get.call_args.args[0].endswith(
@@ -302,6 +306,24 @@ def test_get_metric_perps_returns_perps_metric() -> None:
         mock_factory.call_args.kwargs["metric_type"] == PerpsMetricType.TRADING_VOLUME
     )
     assert mock_factory.call_args.kwargs["value"] == 140.0
+
+
+def test_get_metric_open_interest_is_single_sided() -> None:
+    """DefiLlama's open interest counts one side of each position, so it is
+    its own metric, not a provider of the double-sided Total Open Interest."""
+    provider = DefiLlama()
+
+    with patch.object(
+        provider._session, "get", return_value=_make_mock_resp(_PERPS_BREAKDOWN)
+    ):
+        result = provider.get_metric(
+            "perps_open_interest_single_sided", "2026-10-11", "solana"
+        )
+
+    assert result.metric_type == PerpsMetricType.OPEN_INTEREST_SINGLE_SIDED
+    assert result.name == "Total Open Interest (Single-Sided)"
+    assert result.value == 140.0
+    assert "perps_open_interest" not in DefiLlama.METRIC_MAP
 
 
 def _fake_coins_chart(url, params=None, timeout=None):

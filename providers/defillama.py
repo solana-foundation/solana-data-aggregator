@@ -78,9 +78,10 @@ class DefiLlama(BaseProvider):
             "endpoint": "/api/v2/chart/derivatives/chain/solana/protocol-breakdown",
             "venues": PERP_VENUES,
         },
-        "perps_open_interest": {
+        "perps_open_interest_single_sided": {
             "endpoint": "/api/v2/chart/open-interest/chain/solana/protocol-breakdown",
             "venues": PERP_VENUES,
+            "methodology": "Single-sided: one side of each open position counted, in USD.",
         },
         "perps_venue_count": {
             "endpoint": "/api/v2/chart/derivatives/chain/solana/protocol-breakdown",
@@ -457,7 +458,7 @@ class DefiLlama(BaseProvider):
 
         perps_metric_map = {
             "perps_trading_volume": PerpsMetricType.TRADING_VOLUME,
-            "perps_open_interest": PerpsMetricType.OPEN_INTEREST,
+            "perps_open_interest_single_sided": PerpsMetricType.OPEN_INTEREST_SINGLE_SIDED,
             "perps_venue_count": PerpsMetricType.VENUE_COUNT,
         }
         if metric in perps_metric_map:

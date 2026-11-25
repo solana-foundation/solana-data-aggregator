@@ -16,7 +16,8 @@ class PerpsMetricType(str, Enum):
     TRADING_VOLUME = "trading_volume"
     TRADERS = "traders"
     TRANSACTIONS = "transactions"
-    OPEN_INTEREST = "open_interest"
+    OPEN_INTEREST_DOUBLE_SIDED = "open_interest_double_sided"
+    OPEN_INTEREST_SINGLE_SIDED = "open_interest_single_sided"
     VENUE_COUNT = "venue_count"
 
 
@@ -36,10 +37,15 @@ _METRIC_METADATA: dict[PerpsMetricType, dict[str, str]] = {
         "unit": "Count",
         "description": "Number of perpetual futures trades on Solana perp venues per day",
     },
-    PerpsMetricType.OPEN_INTEREST: {
+    PerpsMetricType.OPEN_INTEREST_DOUBLE_SIDED: {
         "name": "Total Open Interest",
         "unit": "USD",
-        "description": "Total open interest across Solana perp venues in USD",
+        "description": "Total open interest across Solana perp venues in USD, double-sided (long and short both counted)",
+    },
+    PerpsMetricType.OPEN_INTEREST_SINGLE_SIDED: {
+        "name": "Total Open Interest (Single-Sided)",
+        "unit": "USD",
+        "description": "Total open interest across Solana perp venues in USD, single-sided (one side of each position counted)",
     },
     PerpsMetricType.VENUE_COUNT: {
         "name": "Venue Count",
