@@ -13,7 +13,7 @@ from metrics.lending import Lending, LendingMetricType
 from metrics.overview import Overview, OverviewMetricType
 from metrics.perps import Perps, PerpsMetricType
 from metrics.stablecoin import Stablecoin, StablecoinMetricType
-from providers.base import BaseProvider
+from providers.base import BaseProvider, stablecoin_supply_rows
 
 SOLANA_NETWORK_ID = "b204e48e-9812-43e6-a00b-5fcfd40e04a2"
 SOL_ASSET_ID = "b3d5d66c-26a2-404c-9325-91dc714a722b"
@@ -165,6 +165,13 @@ class Blockworks(BaseProvider):
     GRANULARITY = "1d"
     CHART_PAGE_SIZE = 1000
     TIMEOUT_SECONDS = 120
+    # Stablecoin supply by token: the tabular model lists Solana deployments
+    # (one per mint); the timeseries model has one series per deployment and
+    # takes at most this many series per request.
+    STABLECOIN_DEPLOYMENTS_MODEL = "stablecoin-deployments"
+    STABLECOIN_DEPLOYMENT_SUPPLY_MODEL = "stablecoins-by-deployment"
+    TABULAR_PAGE_SIZE = 1000
+    MAX_SERIES_PER_REQUEST = 10
 
     def __init__(self, *, api_key: Optional[str] = None) -> None:
         resolved_api_key = api_key or self._resolve_api_key()
@@ -395,6 +402,80 @@ class Blockworks(BaseProvider):
                 for d, vals in sorted(per_day.items())
             ]
         return [{"date": d, "value": sum(vals)} for d, vals in sorted(per_day.items())]
+
+    def _solana_stablecoin_deployments(self) -> List[Dict[str, Any]]:
+        """Every Solana stablecoin deployment ({"id", "symbol", "tokenAddress"}).
+
+        ``id`` is the deployment's series key in the timeseries model;
+        ``tokenAddress`` is the mint.
+        """
+        deployments: List[Dict[str, Any]] = []
+        page = 1
+        while True:
+            body = self._get(
+                f"/query/tabular/{self.STABLECOIN_DEPLOYMENTS_MODEL}",
+                params={
+                    "chainEq": "solana",
+                    "selections": "id,symbol,tokenAddress",
+                    "pageSize": self.TABULAR_PAGE_SIZE,
+                    "page": page,
+                },
+            )
+            if body.get("error"):
+                raise RuntimeError(f"Blockworks API error: {body['error']}")
+            deployments.extend(body.get("data") or [])
+            total_pages = (body.get("metadata") or {}).get("totalPages") or 1
+            if page >= total_pages:
+                return deployments
+            page += 1
+
+    def fetch_stablecoin_supply_by_token(
+        self, start_date: str, end_date: str
+    ) -> List[Dict[str, Any]]:
+        """Circulating supply (USD) per Solana stablecoin per day, both dates inclusive.
+
+        Returns {"date", "mint_address", "token", "value"} records; summing value
+        per date gives the stablecoin_circulating_supply metric (Blockworks'
+        stablecoins-by-chain total).
+        """
+        deployments = {
+            d["id"]: d
+            for d in self._solana_stablecoin_deployments()
+            if d.get("id") and d.get("tokenAddress")
+        }
+        series_keys = list(deployments)
+        raw_rows: List[Dict[str, Any]] = []
+        for i in range(0, len(series_keys), self.MAX_SERIES_PER_REQUEST):
+            batch = series_keys[i : i + self.MAX_SERIES_PER_REQUEST]
+            data, (value_idx,) = self._query_timeseries(
+                f"/query/timeseries/{self.STABLECOIN_DEPLOYMENT_SUPPLY_MODEL}/{self.GRANULARITY}",
+                ("circulatingSupplyUSD",),
+                start_date,
+                end_date,
+                extra_params={"series": ",".join(batch)},
+            )
+            for series in data.get("series", []):
+                deployment = deployments.get(series.get("key"))
+                if deployment is None:
+                    continue
+                for point in series.get("points", []):
+                    raw_rows.append(
+                        {
+                            "date": self._point_date(point),
+                            "mint_address": deployment["tokenAddress"],
+                            "symbol": deployment.get("symbol"),
+                            "circulating_supply_usd": point[value_idx],
+                        }
+                    )
+        return stablecoin_supply_rows(
+            raw_rows,
+            date_field="date",
+            mint_field="mint_address",
+            token_field="symbol",
+            value_field="circulating_supply_usd",
+            start_date=start_date,
+            end_date=end_date,
+        )
 
     # -- BaseProvider interface ---------------------------------------------
 
