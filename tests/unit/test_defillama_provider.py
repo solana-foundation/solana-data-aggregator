@@ -321,7 +321,7 @@ def test_get_metric_open_interest_is_single_sided() -> None:
         )
 
     assert result.metric_type == PerpsMetricType.OPEN_INTEREST_SINGLE_SIDED
-    assert result.name == "Total Open Interest (Single-Sided)"
+    assert result.name == "Total OI (Single-Sided)"
     assert result.value == 140.0
     assert "perps_open_interest" not in DefiLlama.METRIC_MAP
 

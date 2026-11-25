@@ -38,12 +38,12 @@ _METRIC_METADATA: dict[PerpsMetricType, dict[str, str]] = {
         "description": "Number of perpetual futures trades on Solana perp venues per day",
     },
     PerpsMetricType.OPEN_INTEREST_DOUBLE_SIDED: {
-        "name": "Total Open Interest",
+        "name": "Total OI (Double-Sided)",
         "unit": "USD",
         "description": "Total open interest across Solana perp venues in USD, double-sided (long and short both counted)",
     },
     PerpsMetricType.OPEN_INTEREST_SINGLE_SIDED: {
-        "name": "Total Open Interest (Single-Sided)",
+        "name": "Total OI (Single-Sided)",
         "unit": "USD",
         "description": "Total open interest across Solana perp venues in USD, single-sided (one side of each position counted)",
     },
