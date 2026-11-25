@@ -470,3 +470,151 @@ def test_get_metric_perps_open_interest_returns_perps_metric() -> None:
     assert result is sentinel_metric
     assert mock_factory.call_args.kwargs["metric_type"] == PerpsMetricType.OPEN_INTEREST
     assert mock_factory.call_args.kwargs["value"] == 366.0
+
+
+# -- stablecoin supply by token ------------------------------------------------
+
+_NOV22 = 1795305600  # 2026-11-22T00:00:00Z
+_NOV23 = 1795392000  # 2026-11-23T00:00:00Z
+_USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+_USDE = "DEkqHyPN7GMRJ5cArtQFAWefqbZb33Hyf6s5iCwjEonT"
+
+
+def _deployments_response(rows: list, total_pages: int = 1) -> MagicMock:
+    return _mock_response(
+        {
+            "error": None,
+            "data": rows,
+            "metadata": {"totalPages": total_pages, "totalRows": len(rows)},
+        }
+    )
+
+
+def _deployment_supply_response(series: dict) -> MagicMock:
+    """stablecoins-by-deployment batch response: {series key: points}."""
+    return _mock_response(
+        {
+            "error": None,
+            "data": {
+                "point_schema": [
+                    {"field": "time", "time": True},
+                    {"field": "circulatingSupplyUSD", "time": False},
+                ],
+                "series": [
+                    {"key": key, "entity": {"chain": "solana"}, "points": points}
+                    for key, points in series.items()
+                ],
+            },
+        }
+    )
+
+
+def test_fetch_stablecoin_supply_by_token_maps_deployment_series_to_mints() -> None:
+    provider = Blockworks(api_key="key")
+    deployments = _deployments_response(
+        [
+            {"id": f"solana_{_USDC}", "symbol": "USDC", "tokenAddress": _USDC},
+            {"id": f"solana_{_USDE}", "symbol": "USDe", "tokenAddress": _USDE},
+            {"id": "solana_NOMINT", "symbol": "X", "tokenAddress": None},
+        ]
+    )
+    supply = _deployment_supply_response(
+        {
+            f"solana_{_USDC}": [[_NOV22, 7.0e9], [_NOV23, 7.1e9]],
+            # zero and null supply are dropped
+            f"solana_{_USDE}": [[_NOV22, 0.0], [_NOV23, None]],
+        }
+    )
+
+    with patch.object(
+        provider._session, "get", side_effect=[deployments, supply]
+    ) as mock_get:
+        rows = provider.fetch_stablecoin_supply_by_token("2026-11-22", "2026-11-23")
+
+    deployments_call, supply_call = mock_get.call_args_list
+    assert deployments_call.args[0] == (
+        "https://api.blockworks.com/query/tabular/stablecoin-deployments"
+    )
+    assert deployments_call.kwargs["params"]["chainEq"] == "solana"
+    assert supply_call.args[0] == (
+        "https://api.blockworks.com/query/timeseries/stablecoins-by-deployment/1d"
+    )
+    # the deployment without a mint is never requested
+    assert supply_call.kwargs["params"] == {
+        "start": "2026-11-22",
+        "end": "2026-11-24",
+        "selections": "circulatingSupplyUSD",
+        "series": f"solana_{_USDC},solana_{_USDE}",
+    }
+    assert rows == [
+        {"date": "2026-11-22", "mint_address": _USDC, "token": "USDC", "value": 7.0e9},
+        {"date": "2026-11-23", "mint_address": _USDC, "token": "USDC", "value": 7.1e9},
+    ]
+
+
+def test_fetch_stablecoin_supply_by_token_requests_at_most_ten_series_per_call() -> (
+    None
+):
+    provider = Blockworks(api_key="key")
+    mints = [f"Mint{i:02d}" for i in range(12)]
+    deployments = _deployments_response(
+        [
+            {"id": f"solana_{m}", "symbol": f"T{i}", "tokenAddress": m}
+            for i, m in enumerate(mints)
+        ]
+    )
+    first = _deployment_supply_response(
+        {f"solana_{m}": [[_NOV23, 1.0]] for m in mints[:10]}
+    )
+    second = _deployment_supply_response(
+        {f"solana_{m}": [[_NOV23, 1.0]] for m in mints[10:]}
+    )
+
+    with patch.object(
+        provider._session, "get", side_effect=[deployments, first, second]
+    ) as mock_get:
+        rows = provider.fetch_stablecoin_supply_by_token("2026-11-23", "2026-11-23")
+
+    batches = [
+        c.kwargs["params"]["series"].split(",") for c in mock_get.call_args_list[1:]
+    ]
+    assert [len(b) for b in batches] == [10, 2]
+    assert sorted(r["mint_address"] for r in rows) == sorted(mints)
+
+
+def test_fetch_stablecoin_supply_by_token_pages_through_deployments() -> None:
+    provider = Blockworks(api_key="key")
+    page1 = _deployments_response(
+        [{"id": f"solana_{_USDC}", "symbol": "USDC", "tokenAddress": _USDC}],
+        total_pages=2,
+    )
+    page2 = _deployments_response(
+        [{"id": f"solana_{_USDE}", "symbol": "USDe", "tokenAddress": _USDE}],
+        total_pages=2,
+    )
+    supply = _deployment_supply_response(
+        {f"solana_{_USDC}": [[_NOV23, 5.0]], f"solana_{_USDE}": [[_NOV23, 2.0]]}
+    )
+
+    with patch.object(
+        provider._session, "get", side_effect=[page1, page2, supply]
+    ) as mock_get:
+        rows = provider.fetch_stablecoin_supply_by_token("2026-11-23", "2026-11-23")
+
+    assert [c.kwargs["params"].get("page") for c in mock_get.call_args_list[:2]] == [
+        1,
+        2,
+    ]
+    assert [(r["mint_address"], r["token"]) for r in rows] == [
+        (_USDC, "USDC"),
+        (_USDE, "USDE"),
+    ]
+
+
+def test_fetch_stablecoin_supply_by_token_raises_on_deployments_error() -> None:
+    provider = Blockworks(api_key="key")
+    error = _mock_response({"error": "forbidden", "data": None})
+
+    with patch.object(provider._session, "get", return_value=error):
+        with pytest.raises(RuntimeError, match="forbidden"):
+            provider.fetch_stablecoin_supply_by_token("2026-11-23", "2026-11-23")
