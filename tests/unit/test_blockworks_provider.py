@@ -465,10 +465,15 @@ def test_get_metric_perps_open_interest_returns_perps_metric() -> None:
             Perps, "from_metric_type", return_value=sentinel_metric
         ) as mock_factory,
     ):
-        result = provider.get_metric("perps_open_interest", "2026-10-11", "solana")
+        result = provider.get_metric(
+            "perps_open_interest_double_sided", "2026-10-11", "solana"
+        )
 
     assert result is sentinel_metric
-    assert mock_factory.call_args.kwargs["metric_type"] == PerpsMetricType.OPEN_INTEREST
+    assert (
+        mock_factory.call_args.kwargs["metric_type"]
+        == PerpsMetricType.OPEN_INTEREST_DOUBLE_SIDED
+    )
     assert mock_factory.call_args.kwargs["value"] == 366.0
 
 

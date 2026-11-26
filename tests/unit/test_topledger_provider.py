@@ -844,7 +844,9 @@ def test_fetch_rows_perps_open_interest() -> None:
     with patch.object(
         provider._session, "post", return_value=_immediate_result_resp(_PERPS_OI_ROWS)
     ):
-        rows = provider.fetch_rows("perps_open_interest", _START, "2026-07-02")
+        rows = provider.fetch_rows(
+            "perps_open_interest_double_sided", _START, "2026-07-02"
+        )
 
     assert rows[0] == {"date": "2026-07-01", "value": pytest.approx(1_200_000_000.0)}
     assert rows[1] == {"date": "2026-07-02", "value": pytest.approx(1_250_000_000.0)}
@@ -897,10 +899,12 @@ def test_get_metric_perps_open_interest_returns_perps_model() -> None:
     with patch.object(
         provider._session, "post", return_value=_immediate_result_resp(_PERPS_OI_ROWS)
     ):
-        result = provider.get_metric("perps_open_interest", _START, "solana")
+        result = provider.get_metric(
+            "perps_open_interest_double_sided", _START, "solana"
+        )
 
     assert isinstance(result, Perps)
-    assert result.metric_type == PerpsMetricType.OPEN_INTEREST
+    assert result.metric_type == PerpsMetricType.OPEN_INTEREST_DOUBLE_SIDED
     assert result.value == pytest.approx(1_200_000_000.0)
 
 
